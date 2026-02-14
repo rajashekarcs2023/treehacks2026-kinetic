@@ -358,3 +358,4 @@ export default function Dashboard() {
 // stats cards + score ring
 // quick start
 // ai insight card
+// recent sessions

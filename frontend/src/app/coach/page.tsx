@@ -620,3 +620,4 @@ function CoachContent() {
 // coaching state
 // joint feedback
 // quality metrics
+// score trend

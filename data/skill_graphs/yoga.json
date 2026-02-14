@@ -1,0 +1,195 @@
+{
+  "name": "yoga",
+  "skills": {
+    "mountain": {
+      "skill_id": "mountain",
+      "name": "Mountain Pose (Tadasana)",
+      "description": "Standing alignment foundation",
+      "category": "standing",
+      "difficulty": 1,
+      "primary_angle": "left_knee",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "downdog": {
+      "skill_id": "downdog",
+      "name": "Downward Dog",
+      "description": "Inverted V-shape full body stretch",
+      "category": "inversion",
+      "difficulty": 1,
+      "primary_angle": "left_shoulder",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "child": {
+      "skill_id": "child",
+      "name": "Child's Pose",
+      "description": "Resting pose with forward fold",
+      "category": "floor",
+      "difficulty": 1,
+      "primary_angle": "left_hip",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "warrior1": {
+      "skill_id": "warrior1",
+      "name": "Warrior I (Virabhadrasana I)",
+      "description": "Lunging pose with arms overhead",
+      "category": "standing",
+      "difficulty": 2,
+      "primary_angle": "left_knee",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "warrior2": {
+      "skill_id": "warrior2",
+      "name": "Warrior II (Virabhadrasana II)",
+      "description": "Wide stance with arms extended to sides",
+      "category": "standing",
+      "difficulty": 2,
+      "primary_angle": "left_knee",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "tree": {
+      "skill_id": "tree",
+      "name": "Tree Pose (Vrksasana)",
+      "description": "Single-leg balance with foot on inner thigh",
+      "category": "balance",
+      "difficulty": 2,
+      "primary_angle": "left_knee",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "triangle": {
+      "skill_id": "triangle",
+      "name": "Triangle Pose",
+      "description": "Side stretch with straight legs",
+      "category": "standing",
+      "difficulty": 2,
+      "primary_angle": "left_hip",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "warrior3": {
+      "skill_id": "warrior3",
+      "name": "Warrior III",
+      "description": "Single-leg balance with body parallel to ground",
+      "category": "balance",
+      "difficulty": 3,
+      "primary_angle": "left_hip",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "crow": {
+      "skill_id": "crow",
+      "name": "Crow Pose (Bakasana)",
+      "description": "Arm balance with knees on triceps",
+      "category": "arm_balance",
+      "difficulty": 4,
+      "primary_angle": "left_elbow",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "headstand": {
+      "skill_id": "headstand",
+      "name": "Headstand (Sirsasana)",
+      "description": "Inverted balance on head and forearms",
+      "category": "inversion",
+      "difficulty": 5,
+      "primary_angle": "left_shoulder",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    }
+  },
+  "edges": {
+    "mountain": [
+      "warrior1",
+      "warrior2",
+      "tree",
+      "triangle"
+    ],
+    "downdog": [
+      "crow",
+      "headstand"
+    ],
+    "child": [],
+    "warrior1": [
+      "warrior3"
+    ],
+    "warrior2": [
+      "warrior3"
+    ],
+    "tree": [
+      "warrior3"
+    ],
+    "triangle": [],
+    "warrior3": [
+      "crow"
+    ],
+    "crow": [
+      "headstand"
+    ],
+    "headstand": []
+  }
+}

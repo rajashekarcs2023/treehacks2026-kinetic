@@ -1,0 +1,137 @@
+{
+  "name": "pt_rehab_knee",
+  "skills": {
+    "seated_knee_ext": {
+      "skill_id": "seated_knee_ext",
+      "name": "Seated Knee Extension",
+      "description": "Straighten knee from 90\u00b0 to full extension while seated",
+      "category": "rom",
+      "difficulty": 1,
+      "primary_angle": "left_knee",
+      "target_score": 70.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "quad_set": {
+      "skill_id": "quad_set",
+      "name": "Quad Set",
+      "description": "Isometric quad contraction with straight leg",
+      "category": "activation",
+      "difficulty": 1,
+      "primary_angle": "left_knee",
+      "target_score": 70.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "heel_slide": {
+      "skill_id": "heel_slide",
+      "name": "Heel Slide",
+      "description": "Slide heel toward glutes while lying down",
+      "category": "rom",
+      "difficulty": 1,
+      "primary_angle": "left_knee",
+      "target_score": 70.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "mini_squat": {
+      "skill_id": "mini_squat",
+      "name": "Mini Squat (Quarter)",
+      "description": "Squat to 45\u00b0 knee bend with support",
+      "category": "strength",
+      "difficulty": 2,
+      "primary_angle": "left_knee",
+      "target_score": 75.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "step_up": {
+      "skill_id": "step_up",
+      "name": "Step Up",
+      "description": "Step onto low platform with controlled descent",
+      "category": "strength",
+      "difficulty": 2,
+      "primary_angle": "left_knee",
+      "target_score": 75.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "full_squat": {
+      "skill_id": "full_squat",
+      "name": "Full Squat",
+      "description": "Squat to 90\u00b0 with even weight distribution",
+      "category": "function",
+      "difficulty": 3,
+      "primary_angle": "left_knee",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "single_leg_balance": {
+      "skill_id": "single_leg_balance",
+      "name": "Single Leg Balance",
+      "description": "Stand on affected leg for 30 seconds",
+      "category": "balance",
+      "difficulty": 3,
+      "primary_angle": "left_knee",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    }
+  },
+  "edges": {
+    "seated_knee_ext": [
+      "mini_squat"
+    ],
+    "quad_set": [
+      "mini_squat"
+    ],
+    "heel_slide": [
+      "step_up"
+    ],
+    "mini_squat": [
+      "full_squat",
+      "single_leg_balance"
+    ],
+    "step_up": [
+      "full_squat"
+    ],
+    "full_squat": [],
+    "single_leg_balance": []
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "name": "pt_rehab_shoulder",
+  "skills": {
+    "pendulum": {
+      "skill_id": "pendulum",
+      "name": "Pendulum Swing",
+      "description": "Gentle arm swing using gravity",
+      "category": "rom",
+      "difficulty": 1,
+      "primary_angle": "left_shoulder",
+      "target_score": 70.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "wall_walk": {
+      "skill_id": "wall_walk",
+      "name": "Wall Walk",
+      "description": "Walk fingers up wall for overhead reach",
+      "category": "rom",
+      "difficulty": 1,
+      "primary_angle": "left_shoulder",
+      "target_score": 70.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "band_external": {
+      "skill_id": "band_external",
+      "name": "Band External Rotation",
+      "description": "Rotator cuff strengthening with resistance band",
+      "category": "strength",
+      "difficulty": 2,
+      "primary_angle": "left_elbow",
+      "target_score": 75.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    },
+    "overhead_press": {
+      "skill_id": "overhead_press",
+      "name": "Light Overhead Press",
+      "description": "Press light weight overhead with full ROM",
+      "category": "strength",
+      "difficulty": 3,
+      "primary_angle": "left_shoulder",
+      "target_score": 80.0,
+      "reference_name": "",
+      "proficiency": 0.0,
+      "attempts": 0,
+      "best_score": 0.0,
+      "last_practiced": 0.0,
+      "status": "not_started",
+      "mastered": false
+    }
+  },
+  "edges": {
+    "pendulum": [
+      "band_external"
+    ],
+    "wall_walk": [
+      "band_external"
+    ],
+    "band_external": [
+      "overhead_press"
+    ],
+    "overhead_press": []
+  }
+}

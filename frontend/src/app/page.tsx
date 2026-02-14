@@ -355,14 +355,3 @@ export default function Dashboard() {
   );
 }
 
-// stats cards + score ring
-// quick start
-// ai insight card
-// recent sessions
-// skill progress
-// broader vision
-// categories
-// input paths
-// diverse sessions
-// build fix
-// ready

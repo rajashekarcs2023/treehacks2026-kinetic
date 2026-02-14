@@ -615,15 +615,3 @@ function CoachContent() {
   );
 }
 
-// video feed
-// controls
-// coaching state
-// joint feedback
-// quality metrics
-// score trend
-// broader skills
-// coaching ws
-// video stream
-// fallback sim
-// api calls
-// suspense fix

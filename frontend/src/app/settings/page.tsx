@@ -236,5 +236,3 @@ export default function SettingsPage() {
   );
 }
 
-// status
-// model training

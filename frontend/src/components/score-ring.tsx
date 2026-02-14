@@ -59,4 +59,3 @@ export function ScoreRing({
   );
 }
 
-// TODO: animate on mount

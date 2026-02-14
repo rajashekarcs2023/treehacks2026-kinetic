@@ -356,3 +356,4 @@ export default function Dashboard() {
 }
 
 // stats cards + score ring
+// quick start

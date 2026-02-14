@@ -362,3 +362,4 @@ export default function HistoryPage() {
 
 // filters
 // weekly chart
+// expandable

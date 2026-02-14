@@ -378,3 +378,4 @@ export default function SkillsPage() {
 
 // skill cards
 // recommendations
+// all categories

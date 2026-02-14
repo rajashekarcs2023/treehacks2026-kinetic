@@ -361,3 +361,4 @@ export default function Dashboard() {
 // recent sessions
 // skill progress
 // broader vision
+// categories

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEGIS — Demo Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: #0a0a12;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────── */
+        header {
+            background: linear-gradient(135deg, #0f1020 0%, #1a1a2e 100%);
+            border-bottom: 1px solid #222;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: #00ff88;
+            letter-spacing: 3px;
+        }
+        header .subtitle {
+            font-size: 12px;
+            color: #666;
+            letter-spacing: 1px;
+        }
+        .header-stats {
+            display: flex;
+            gap: 24px;
+            font-size: 12px;
+            color: #888;
+        }
+        .stat-value { color: #00ff88; font-weight: bold; }
+
+        /* ── Grid Layout ────────────────────────────── */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 1px;
+            background: #1a1a2e;
+            height: calc(100vh - 60px);
+        }
+
+        .panel {
+            background: #0f0f1a;
+            padding: 16px;
+            overflow-y: auto;
+        }
+        .panel-header {
+            font-size: 11px;
+            font-weight: 700;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* ── Goals Panel ────────────────────────────── */
+        .goal-card {
+            padding: 12px;
+            border: 1px solid #222;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .goal-card:hover { border-color: #444; background: #151525; }
+        .goal-card.active {
+            border-color: #00ff88;
+            background: rgba(0,255,136,0.05);
+        }
+        .goal-card .goal-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .goal-card .goal-desc {
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .goal-icon { font-size: 20px; margin-right: 8px; }
+
+        /* ── Spatial State Panel ─────────────────────── */
+        .person-card {
+            padding: 10px;
+            border-left: 3px solid #00ff88;
+            background: #111122;
+            margin-bottom: 6px;
+            border-radius: 0 6px 6px 0;
+        }
+        .person-card.fallen { border-left-color: #ff4444; }
+        .person-card.running { border-left-color: #ffaa00; }
+
+        .person-id { font-weight: 700; color: #00ff88; }
+        .person-activity { color: #ffaa00; font-weight: 600; }
+        .person-detail { font-size: 11px; color: #888; }
+
+        .object-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(255,200,0,0.1);
+            border: 1px solid rgba(255,200,0,0.3);
+            border-radius: 12px;
+            font-size: 11px;
+            color: #ffcc00;
+            margin: 2px;
+        }
+
+        .risk-alert {
+            padding: 8px 12px;
+            background: rgba(255,0,0,0.1);
+            border: 1px solid rgba(255,0,0,0.3);
+            border-radius: 6px;
+            color: #ff6666;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        /* ── Tool Call Log ───────────────────────────── */
+        .log-entry {
+            padding: 8px;
+            border-bottom: 1px solid #1a1a2e;
+            font-size: 12px;
+        }
+        .log-time {
+            color: #555;
+            font-size: 10px;
+        }
+        .log-tool {
+            color: #00aaff;
+            font-weight: 600;
+        }
+        .log-goal-tag {
+            display: inline-block;
+            padding: 1px 6px;
+            background: rgba(0,255,136,0.1);
+            border-radius: 4px;
+            font-size: 10px;
+            color: #00ff88;
+        }
+        .log-result {
+            color: #888;
+            font-size: 11px;
+            margin-top: 2px;
+            word-break: break-all;
+        }
+
+        /* ── Decision Log ───────────────────────────── */
+        .decision-entry {
+            padding: 8px;
+            border-bottom: 1px solid #1a1a2e;
+            font-size: 12px;
+        }
+        .decision-type {
+            color: #cc66ff;
+            font-weight: 600;
+            font-size: 11px;
+        }
+        .decision-detail {
+            color: #ccc;
+            margin-top: 2px;
+            font-size: 12px;
+        }
+
+        /* ── Empty states ───────────────────────────── */
+        .empty-state {
+            color: #444;
+            font-size: 12px;
+            text-align: center;
+            padding: 24px;
+        }
+
+        /* ── Scrollbar ──────────────────────────────── */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>AEGIS</h1>
+            <div class="subtitle">Goal-Directed Spatial AI — Demo Dashboard</div>
+        </div>
+        <div class="header-stats">
+            <span>FPS: <span class="stat-value" id="stat-fps">--</span></span>
+            <span>Persons: <span class="stat-value" id="stat-persons">0</span></span>
+            <span>Objects: <span class="stat-value" id="stat-objects">0</span></span>
+            <span>Tool Calls: <span class="stat-value" id="stat-tools">0</span></span>
+            <span>Goal: <span class="stat-value" id="stat-goal">--</span></span>
+        </div>
+    </header>
+
+    <div class="grid">
+        <!-- Col 1: Goals + Spatial State -->
+        <div class="panel" style="grid-row: 1 / 3;">
+            <div class="panel-header">Goals</div>
+            <div id="goals-list"></div>
+
+            <div class="panel-header" style="margin-top: 20px;">
+                Spatial State
+                <span id="state-fps" style="color: #00ff88; font-size: 10px;"></span>
+            </div>
+            <div id="persons-list"></div>
+            <div id="objects-list" style="margin-top: 12px;"></div>
+            <div id="risks-list" style="margin-top: 12px;"></div>
+        </div>
+
+        <!-- Col 2: Tool Call Log -->
+        <div class="panel" style="grid-row: 1 / 3;">
+            <div class="panel-header">
+                Tool Calls
+                <span id="tool-count" style="color: #00aaff; font-size: 10px;"></span>
+            </div>
+            <div id="tool-log"></div>
+        </div>
+
+        <!-- Col 3: Agent Decisions -->
+        <div class="panel" style="grid-row: 1 / 3;">
+            <div class="panel-header">
+                Agent Decisions
+                <span id="decision-count" style="color: #cc66ff; font-size: 10px;"></span>
+            </div>
+            <div id="decision-log"></div>
+        </div>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        // Dashboard — polls APIs and renders real-time state
+        // ═══════════════════════════════════════════════════════════════
+
+        let activeGoalId = 'general';
+
+        // ── Fetch and render goals ──────────────────────────────────
+        async function fetchGoals() {
+            try {
+                const resp = await fetch('/api/goals');
+                const data = await resp.json();
+                activeGoalId = data.active_goal_id;
+                renderGoals(data.goals);
+                document.getElementById('stat-goal').textContent =
+                    data.goals.find(g => g.active)?.name || '--';
+            } catch (e) { console.error('Goals fetch error:', e); }
+        }
+
+        function renderGoals(goals) {
+            const el = document.getElementById('goals-list');
+            el.innerHTML = goals.map(g => `
+                <div class="goal-card ${g.active ? 'active' : ''}"
+                     onclick="setGoal('${g.goal_id}')">
+                    <span class="goal-icon">${g.icon}</span>
+                    <span class="goal-name">${g.name}</span>
+                    <div class="goal-desc">${g.description}</div>
+                </div>
+            `).join('');
+        }
+
+        async function setGoal(goalId) {
+            try {
+                await fetch(`/api/goals/${goalId}`, { method: 'POST' });
+                await fetchGoals();
+            } catch (e) { console.error('Set goal error:', e); }
+        }
+
+        // ── Fetch and render spatial state ──────────────────────────
+        async function fetchState() {
+            try {
+                const resp = await fetch('/api/state');
+                const state = await resp.json();
+                renderState(state);
+            } catch (e) { console.error('State fetch error:', e); }
+        }
+
+        function renderState(state) {
+            if (!state || !state.persons) return;
+
+            // Stats
+            document.getElementById('stat-fps').textContent = Math.round(state.fps || 0);
+            document.getElementById('stat-persons').textContent = (state.persons || []).length;
+            document.getElementById('stat-objects').textContent = (state.objects || []).length;
+            document.getElementById('state-fps').textContent = `${Math.round(state.fps || 0)} FPS`;
+
+            // Persons
+            const personsEl = document.getElementById('persons-list');
+            if (state.persons.length === 0) {
+                personsEl.innerHTML = '<div class="empty-state">No people detected</div>';
+            } else {
+                personsEl.innerHTML = state.persons.map(p => {
+                    const cls = p.activity === 'fallen' ? 'fallen' :
+                               p.activity === 'running' ? 'running' : '';
+                    return `
+                        <div class="person-card ${cls}">
+                            <span class="person-id">Person ${p.track_id}</span>
+                            <span class="person-activity">${p.activity || 'detected'}</span>
+                            <div class="person-detail">
+                                pos: (${p.center.x}, ${p.center.y}) · 
+                                speed: ${Math.round(p.speed_px_per_sec)} px/s ·
+                                dir: ${Math.round(p.direction_deg)}°
+                                ${p.predicted_position ? 
+                                    `· pred: (${p.predicted_position.x}, ${p.predicted_position.y})` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Objects
+            const objectsEl = document.getElementById('objects-list');
+            const objects = state.objects || [];
+            if (objects.length > 0) {
+                const counts = {};
+                objects.forEach(o => { counts[o.class_name] = (counts[o.class_name] || 0) + 1; });
+                objectsEl.innerHTML = Object.entries(counts).map(([name, count]) =>
+                    `<span class="object-tag">${count}x ${name}</span>`
+                ).join('');
+            } else {
+                objectsEl.innerHTML = '';
+            }
+
+            // Risks
+            const risksEl = document.getElementById('risks-list');
+            const risks = state.risk_events || [];
+            if (risks.length > 0) {
+                risksEl.innerHTML = risks.map(r =>
+                    `<div class="risk-alert">⚠ ${r.description}</div>`
+                ).join('');
+            } else {
+                risksEl.innerHTML = '';
+            }
+        }
+
+        // ── Fetch and render tool log ───────────────────────────────
+        let lastToolCount = 0;
+        async function fetchToolLog() {
+            try {
+                const resp = await fetch('/api/logs/tools');
+                const data = await resp.json();
+                document.getElementById('stat-tools').textContent = data.tools.length;
+                document.getElementById('tool-count').textContent = `${data.tools.length} calls`;
+
+                if (data.tools.length !== lastToolCount) {
+                    lastToolCount = data.tools.length;
+                    renderToolLog(data.tools);
+                }
+            } catch (e) { console.error('Tool log error:', e); }
+        }
+
+        function renderToolLog(tools) {
+            const el = document.getElementById('tool-log');
+            if (tools.length === 0) {
+                el.innerHTML = '<div class="empty-state">No tool calls yet. Agent will use tools when monitoring.</div>';
+                return;
+            }
+            // Reverse to show newest first
+            el.innerHTML = [...tools].reverse().map(t => `
+                <div class="log-entry">
+                    <div>
+                        <span class="log-time">${formatTime(t.timestamp)}</span>
+                        <span class="log-goal-tag">${t.goal}</span>
+                    </div>
+                    <div>
+                        <span class="log-tool">${t.tool}</span>
+                        <span style="color: #555;">(${JSON.stringify(t.input).substring(0, 60)})</span>
+                    </div>
+                    <div class="log-result">${t.result_preview.substring(0, 150)}...</div>
+                </div>
+            `).join('');
+        }
+
+        // ── Fetch and render decision log ───────────────────────────
+        let lastDecisionCount = 0;
+        async function fetchDecisionLog() {
+            try {
+                const resp = await fetch('/api/logs/decisions');
+                const data = await resp.json();
+                document.getElementById('decision-count').textContent = `${data.decisions.length} decisions`;
+
+                if (data.decisions.length !== lastDecisionCount) {
+                    lastDecisionCount = data.decisions.length;
+                    renderDecisionLog(data.decisions);
+                }
+            } catch (e) { console.error('Decision log error:', e); }
+        }
+
+        function renderDecisionLog(decisions) {
+            const el = document.getElementById('decision-log');
+            if (decisions.length === 0) {
+                el.innerHTML = '<div class="empty-state">No decisions yet. Set a goal and interact with the agent.</div>';
+                return;
+            }
+            el.innerHTML = [...decisions].reverse().map(d => `
+                <div class="decision-entry">
+                    <div>
+                        <span class="log-time">${formatTime(d.timestamp)}</span>
+                        <span class="log-goal-tag">${d.goal}</span>
+                        <span class="decision-type">${d.type}</span>
+                    </div>
+                    <div class="decision-detail">${d.detail}</div>
+                </div>
+            `).join('');
+        }
+
+        // ── Utility ─────────────────────────────────────────────────
+        function formatTime(isoString) {
+            const d = new Date(isoString);
+            return d.toLocaleTimeString('en-US', {
+                hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+        }
+
+        // ── Polling loop ────────────────────────────────────────────
+        async function poll() {
+            await Promise.all([
+                fetchState(),
+                fetchToolLog(),
+                fetchDecisionLog(),
+            ]);
+        }
+
+        // Initial load
+        fetchGoals();
+        poll();
+
+        // Poll every second
+        setInterval(poll, 1000);
+        // Refresh goals less often
+        setInterval(fetchGoals, 5000);
+    </script>
+</body>
+</html>

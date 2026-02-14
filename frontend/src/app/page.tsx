@@ -360,3 +360,4 @@ export default function Dashboard() {
 // ai insight card
 // recent sessions
 // skill progress
+// broader vision

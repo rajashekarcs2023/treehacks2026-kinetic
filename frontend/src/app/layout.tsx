@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kinetic — AI Skill Coach",
+  title: "Kinetic AI — AI Skill Coach",
   description: "Real-time AI skill coaching with expert motion transfer",
 };
 

@@ -359,3 +359,4 @@ export default function Dashboard() {
 // quick start
 // ai insight card
 // recent sessions
+// skill progress

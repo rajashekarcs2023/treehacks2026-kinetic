@@ -362,3 +362,4 @@ export default function Dashboard() {
 // skill progress
 // broader vision
 // categories
+// input paths

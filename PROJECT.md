@@ -65,14 +65,36 @@ It's like having a world-class coach who can see your body, understands biomecha
 - **Depth Anything V2** — monocular depth estimation on MPS GPU
 - **Activity Classifier** — ML temporal CNN (11 activity classes) + heuristic fallback
 
-### The Brain — Claude Agent with MCP
-- **43 MCP tools** across 13 categories (perception, pose, coaching, training, intelligence, etc.)
-- **3 subagents** via Claude Agent SDK:
-  - **Perception Agent** — reads the scene, understands spatial state
-  - **Coach Agent** — compares poses, gives corrections, manages coaching sessions
-  - **Progress Agent** — tracks skill progression, manages goals, stores observations
-- **Hooks** — PreToolUse (safety guardrails), PostToolUse (audit logging), Stop (session summary)
-- **Skills** — markdown-defined domain expertise for coaching, perception, progress
+### The Brain — Multi-Agent System via Claude Agent SDK
+This is NOT a single agent with all tools. It's a **multi-agent architecture**:
+
+```
+┌─────────────────────────────────────────────┐
+│           MAIN ORCHESTRATOR AGENT           │
+│  Decides what to do, delegates via "Task"   │
+│  Has access to all 43 tools + Task tool     │
+├─────────┬──────────────┬────────────────────┤
+│  TASK   │     TASK     │       TASK         │
+│   ↓     │      ↓       │        ↓           │
+│ ┌─────┐ │ ┌──────────┐ │ ┌──────────────┐  │
+│ │PERC.│ │ │  COACH   │ │ │  PROGRESS    │  │
+│ │AGENT│ │ │  AGENT   │ │ │  AGENT       │  │
+│ │     │ │ │          │ │ │              │  │
+│ │10   │ │ │14 tools  │ │ │10 tools      │  │
+│ │tools│ │ │coaching  │ │ │goals, memory │  │
+│ │scene│ │ │compare   │ │ │graphs, train │  │
+│ └─────┘ │ └──────────┘ │ └──────────────┘  │
+└─────────┴──────────────┴────────────────────┘
+```
+
+- **Orchestrator** — decides intent, delegates to specialized subagents
+- **Perception Agent** (10 tools) — reads scene, pose, activity, objects
+- **Coach Agent** (14 tools) — pose comparison, corrections, rep counting, coaching sessions
+- **Progress Agent** (10 tools) — skill graphs, goal management, memory, model training
+- **Hooks** — PreToolUse (safety guardrails: blocks dangerous tool calls), PostToolUse (audit log: every tool call recorded), Stop (session summary generation)
+- **Skills** — markdown-defined domain expertise (`.claude/skills/coaching.md`, `perception.md`, `progress.md`)
+
+**Why multi-agent?** Each subagent has **restricted tool access** — the Coach Agent can't modify goals, the Perception Agent can't alter training data. This is a real safety architecture, not just for show.
 
 ### The Voice — Gemini Live
 - **Bidirectional audio** — user speaks naturally, AI responds with voice

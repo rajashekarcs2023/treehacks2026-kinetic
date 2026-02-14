@@ -30,7 +30,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-[72px] flex-col items-center border-r border-border bg-sidebar/95 py-4">
+    <aside className="flex h-screen w-[72px] flex-col items-center border-r border-border bg-sidebar py-4">
       {/* Logo */}
       <Link
         href="/"

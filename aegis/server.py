@@ -92,90 +92,120 @@ _last_agent_rep_count = 0
 async def _run_coaching_intelligence():
     """Background loop: Claude Agent SDK analyzes coaching every ~10 seconds.
     
-    Uses MCP tools: get_coaching_progress, get_movement_quality_analysis,
-    detect_compensation_patterns, speak_to_user.
-    
-    This is the AGENTIC part — Claude autonomously:
-    1. Queries coaching state via MCP tools
-    2. Reasons about form, patterns, fatigue
-    3. Decides what feedback to give
-    4. Acts via speak_to_user (Gemini voice) + sends to frontend
+    Gathers coaching data directly from server state and passes it to Claude
+    for intelligent analysis. Claude responds with ONLY the coaching feedback.
+    Feedback is shown on screen + spoken via Gemini Live.
     """
     global _last_agent_rep_count
     _last_agent_rep_count = 0
     check_count = 0
     
     # Wait for coaching to get going
-    await asyncio.sleep(5)
+    await asyncio.sleep(6)
     
     while _coaching_session and agent:
         try:
             check_count += 1
-            current_reps = _coaching_session.get_rep_count() if _coaching_session else 0
+            session = _coaching_session
+            if not session:
+                break
             
-            # Build a coaching prompt that triggers tool use
+            # Gather coaching data directly from server state
+            progress = session.get_progress()
+            current_reps = progress.get("reps_completed", 0)
+            avg_score = progress.get("avg_score", 0)
+            best_score = progress.get("best_score", 0)
+            trend = progress.get("trend", "stable")
+            recent_scores = progress.get("scores_per_rep", [])
+            top_corrections = progress.get("top_corrections", [])
+            
+            # Build prompt with data inline (no MCP tool dependency)
+            corrections_str = ", ".join(c[0] for c in top_corrections[:2]) if top_corrections else "none yet"
+            data_block = (
+                f"Skill: {session.skill_name}\n"
+                f"Reps: {current_reps}, Avg score: {avg_score:.0f}/100, "
+                f"Best: {best_score:.0f}/100\n"
+                f"Trend: {trend}, Top corrections needed: {corrections_str}\n"
+                f"Recent scores: {[round(s) for s in recent_scores[-5:]]}"
+            )
+            
             if check_count == 1:
-                # First check — introduce yourself
                 prompt = (
-                    f"A coaching session just started for '{_coaching_session.skill_name}'. "
-                    "Use get_coaching_progress to check the current state. "
-                    "Give a brief encouraging opening via speak_to_user. "
-                    "Keep it to 1 sentence."
+                    f"You are a real-time AI skill coach. A session just started.\n"
+                    f"{data_block}\n\n"
+                    "Respond with ONLY a brief encouraging opening (1 sentence). "
+                    "Example: 'Let's work on your boxing jab — I'll be watching your form!'\n"
+                    "NO reasoning, NO tool calls, JUST the coaching sentence."
                 )
             elif current_reps > _last_agent_rep_count:
-                # New reps completed — analyze form
                 _last_agent_rep_count = current_reps
                 prompt = (
-                    f"The user just completed rep {current_reps}. "
-                    "Use get_coaching_progress and get_movement_quality_analysis to check their form. "
-                    "If quality is dropping, use detect_compensation_patterns to check for bad habits. "
-                    "Give specific, actionable feedback via speak_to_user (1-2 sentences max). "
-                    "Example: 'Your left knee is caving in — push it out over your pinky toe.'"
+                    f"You are a real-time AI skill coach. The user just finished rep {current_reps}.\n"
+                    f"{data_block}\n\n"
+                    "Give specific, actionable form feedback (1-2 sentences max). "
+                    "Be encouraging but specific about what to fix.\n"
+                    "Example: 'Good power on that jab! Try rotating your hips more for extra reach.'\n"
+                    "NO reasoning, JUST the coaching feedback."
                 )
             else:
-                # Periodic check
-                prompt = (
-                    "Periodic coaching check. Use get_coaching_progress to see current state. "
-                    "Only speak if there's something important to say. "
-                    "If everything looks fine, just respond 'MONITORING' without speaking."
-                )
+                if trend == "declining":
+                    prompt = (
+                        f"You are a real-time AI skill coach. Scores are declining.\n"
+                        f"{data_block}\n\n"
+                        "Give a motivating correction (1 sentence). "
+                        "Example: 'I notice your form dropping — focus on keeping your guard up.'\n"
+                        "NO reasoning, JUST the coaching sentence."
+                    )
+                else:
+                    # Skip periodic if nothing interesting
+                    await asyncio.sleep(10)
+                    continue
             
             response = await agent.send_message(prompt)
             
-            # Send agent's analysis to frontend via coaching WS + speak it
-            if response and "MONITORING" not in response:
-                # Clean response for speech (strip markdown, limit length)
-                speech_text = response[:200].replace("**", "").replace("*", "").replace("#", "").strip()
+            # Clean response — extract only the coaching line
+            if response:
+                # Remove any reasoning prefixes Claude might add
+                speech_text = response.strip()
+                for prefix in ["Here's", "Sure,", "Okay,", "I'll", "Let me", "Based on"]:
+                    if speech_text.startswith(prefix) and ":" in speech_text[:60]:
+                        speech_text = speech_text.split(":", 1)[1].strip()
+                # Remove quotes if wrapped
+                speech_text = speech_text.strip('"').strip("'")
+                # Limit length
+                speech_text = speech_text[:180]
                 
-                # Send to frontend as text overlay
-                if _coaching_ws_clients:
-                    agent_msg = json.dumps({
-                        "type": "agent_feedback",
-                        "data": speech_text,
-                        "check": check_count,
-                    })
-                    for client in list(_coaching_ws_clients):
+                if speech_text and len(speech_text) > 5:
+                    print(f"[Agent] Coach says: {speech_text}")
+                    
+                    # Send to frontend as text overlay
+                    if _coaching_ws_clients:
+                        agent_msg = json.dumps({
+                            "type": "agent_feedback",
+                            "data": speech_text,
+                            "check": check_count,
+                        })
+                        for client in list(_coaching_ws_clients):
+                            try:
+                                await client.send_text(agent_msg)
+                            except Exception:
+                                pass
+                    
+                    # Speak via Gemini Live (if connected) or macOS say fallback
+                    if gemini_bridge and gemini_bridge.is_connected:
                         try:
-                            await client.send_text(agent_msg)
+                            await gemini_bridge.speak(speech_text)
                         except Exception:
                             pass
-                
-                # Speak via Gemini Live (if connected) or macOS say fallback
-                if gemini_bridge and gemini_bridge.is_connected:
-                    try:
-                        await gemini_bridge.speak(speech_text)
-                    except Exception:
-                        pass
-                else:
-                    # Fallback: macOS TTS
-                    try:
-                        import subprocess
-                        subprocess.Popen(
-                            ["say", "-r", "185", speech_text],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        )
-                    except Exception:
-                        pass
+                    else:
+                        try:
+                            import subprocess
+                            subprocess.Popen(
+                                ["say", "-r", "185", speech_text],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            )
+                        except Exception:
+                            pass
             
         except Exception as e:
             print(f"[Agent] Coaching intelligence error: {e}")

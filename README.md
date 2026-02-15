@@ -15,7 +15,7 @@ Kinetic is a unified platform for **physical movement intelligence** — AI skil
 
 **Infrastructure:**
 - 🖥️ **DGX Spark**: 17-keypoint real-time pose on NVIDIA GB10 Superchip
-- 🚀 **Modal A100**: HY-Motion 1.0-Lite text-to-3D motion generation
+- 🚀 **Modal A100**: HY-Motion 1.0-Lite text-to-3D motion generation - **Endpoint**: `POST https://rajashekarvennavelli--aegis-motion-generate-endpoint.modal.run`
 - 🤖 **46 MCP Tools**: Full stack exposed via HTTP for external AI agents (Poke)
 
 ---

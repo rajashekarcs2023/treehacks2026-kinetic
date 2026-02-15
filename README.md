@@ -10,7 +10,7 @@ Kinetic is a unified platform for **physical movement intelligence** — AI skil
 
 ## Demo
 
-🎥 [Loom Demo Video](#) <!-- TODO: Add Loom link -->
+🎥 [Loom Demo Video](https://youtu.be/xTkgjQ2uvHc) <!-- TODO: Add Loom link -->
 🌐 [Live Frontend](https://frontend-qh6de6ixx-rajashekarvs-projects.vercel.app)
 
 **Infrastructure:**

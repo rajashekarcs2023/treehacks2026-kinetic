@@ -142,16 +142,38 @@ async def _run_coaching_intelligence():
             
             response = await agent.send_message(prompt)
             
-            # Send agent's analysis to frontend via coaching WS
-            if response and "MONITORING" not in response and _coaching_ws_clients:
-                agent_msg = json.dumps({
-                    "type": "agent_feedback",
-                    "data": response[:200],  # Truncate for display
-                    "check": check_count,
-                })
-                for client in list(_coaching_ws_clients):
+            # Send agent's analysis to frontend via coaching WS + speak it
+            if response and "MONITORING" not in response:
+                # Clean response for speech (strip markdown, limit length)
+                speech_text = response[:200].replace("**", "").replace("*", "").replace("#", "").strip()
+                
+                # Send to frontend as text overlay
+                if _coaching_ws_clients:
+                    agent_msg = json.dumps({
+                        "type": "agent_feedback",
+                        "data": speech_text,
+                        "check": check_count,
+                    })
+                    for client in list(_coaching_ws_clients):
+                        try:
+                            await client.send_text(agent_msg)
+                        except Exception:
+                            pass
+                
+                # Speak via Gemini Live (if connected) or macOS say fallback
+                if gemini_bridge and gemini_bridge.is_connected:
                     try:
-                        await client.send_text(agent_msg)
+                        await gemini_bridge.speak(speech_text)
+                    except Exception:
+                        pass
+                else:
+                    # Fallback: macOS TTS
+                    try:
+                        import subprocess
+                        subprocess.Popen(
+                            ["say", "-r", "185", speech_text],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
                     except Exception:
                         pass
             

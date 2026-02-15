@@ -607,6 +607,7 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
       setPhase("Preparation");
       setCurrentFeedback("Analyzing your movement...");
       if (!cameraActive) startCamera();
+      setMicActive(true); // Auto-enable voice coaching
       try { await startCoaching(selectedSkill, referenceName || undefined); } catch { /* backend may be offline — simulation will kick in */ }
     }
   };

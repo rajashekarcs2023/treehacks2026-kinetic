@@ -17,3 +17,13 @@ node_modules/
 *.pt
 models/*.task
 data/references/
+data/memory/
+venv
+DESIGN.md
+PIVOT.md
+STATUS.md
+API.md
+PROJECT.md
+SKILLCOACH.md
+USECASES.md
+PRIZES_AND_ARCHITECTURE.md

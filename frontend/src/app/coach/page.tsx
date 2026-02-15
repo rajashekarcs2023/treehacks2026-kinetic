@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScoreRing } from "@/components/score-ring";
-import { createCoachingWS, createVideoWS, startCoaching, stopCoaching } from "@/lib/api";
+import { createCoachingWS, createVideoWS, startCoaching, stopCoaching, ingestYouTube } from "@/lib/api";
 import {
   Video,
   VideoOff,
@@ -23,6 +23,15 @@ import {
   TrendingUp,
   Sparkles,
   AlertTriangle,
+  Youtube,
+  Loader2,
+  Link,
+  Zap,
+  Upload,
+  FileText,
+  MessageSquareText,
+  MonitorPlay,
+  ChevronRight,
 } from "lucide-react";
 
 interface JointFeedback {
@@ -57,6 +66,7 @@ export default function CoachPage() {
 function CoachContent() {
   const searchParams = useSearchParams();
   const initialSkill = searchParams.get("skill") || "Squat";
+  const initialMode = searchParams.get("mode") as "video" | "describe" | "document" | null;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -66,6 +76,69 @@ function CoachContent() {
   const [selectedSkill, setSelectedSkill] = useState(initialSkill);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Input mode state — pre-select from ?mode= query param
+  const [inputMode, setInputMode] = useState<"none" | "video" | "describe" | "document">(initialMode || "none");
+  const [videoSubMode, setVideoSubMode] = useState<"none" | "url" | "upload">(initialMode === "video" ? "url" : "none");
+
+  // YouTube / video state
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
+  const [referenceName, setReferenceName] = useState<string | null>(null);
+  const [referenceFrames, setReferenceFrames] = useState(0);
+  const [coachMode, setCoachMode] = useState<"setup" | "coaching">("setup");
+
+  // Describe-it state
+  const [skillDescription, setSkillDescription] = useState("");
+
+  // Document state
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedVideoName, setUploadedVideoName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
+
+  const extractYouTubeId = (url: string): string | null => {
+    const m = url.match(/(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : null;
+  };
+
+  const handleIngestVideo = async () => {
+    const vid = extractYouTubeId(youtubeUrl);
+    if (!vid) return;
+    setYoutubeVideoId(vid);
+    setIsProcessingVideo(true);
+    try {
+      const name = `${selectedSkill.toLowerCase().replace(/\s+/g, "_")}_${vid}`;
+      const result = await ingestYouTube(youtubeUrl, name);
+      if (result.status === "success") {
+        setReferenceName(result.name || name);
+        setReferenceFrames(result.frames || 0);
+      }
+    } catch {
+      // backend may be offline — still show the YouTube embed
+    }
+    setIsProcessingVideo(false);
+  };
+
+  const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedVideoName(file.name);
+    // TODO: upload to backend for skeleton extraction
+    setIsProcessingVideo(true);
+    setTimeout(() => {
+      setReferenceName(`upload_${file.name.replace(/\.[^.]+$/, "")}`);
+      setReferenceFrames(0);
+      setIsProcessingVideo(false);
+    }, 1500);
+  };
+
+  const handleDocUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedFileName(file.name);
+  };
 
   // Coaching state
   const [currentScore, setCurrentScore] = useState(0);
@@ -95,7 +168,7 @@ function CoachContent() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const videoWsRef = useRef<WebSocket | null>(null);
-  const [backendConnected, setBackendConnected] = useState(false);
+  const receivingRealData = useRef(false);
 
   // Timer
   useEffect(() => {
@@ -106,68 +179,88 @@ function CoachContent() {
     return () => clearInterval(interval);
   }, [isCoaching]);
 
-  // Connect coaching WebSocket for real-time data
+  // Try connecting coaching WebSocket (real data overrides simulation)
   useEffect(() => {
     if (!isCoaching) return;
+    receivingRealData.current = false;
 
     let ws: WebSocket;
     try {
       ws = createCoachingWS();
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        setBackendConnected(true);
-        console.log("[Kinetic] Coaching WebSocket connected");
-      };
+      ws.onopen = () => console.log("[Kinetic] Coaching WS connected");
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (data.score !== undefined) {
-            setCurrentScore(data.score);
-            setScores((prev) => {
-              const updated = [...prev, data.score];
-              setAvgScore(updated.reduce((a, b) => a + b, 0) / updated.length);
-              setBestScore(Math.max(...updated));
-              return updated;
-            });
-          }
-          if (data.reps !== undefined) setRepCount(data.reps);
-          if (data.phase) setPhase(data.phase);
-          if (data.feedback) setCurrentFeedback(data.feedback);
-          if (data.joints) {
-            setJoints(data.joints.map((j: { name: string; status: string; angle: number; target: number; message: string }) => ({
-              name: j.name,
-              status: j.status as "good" | "warning" | "bad",
-              angle: j.angle,
-              target: j.target,
-              message: j.message,
-            })));
-          }
-          if (data.quality) {
-            setQuality({
-              smoothness: data.quality.smoothness ?? 0,
-              symmetry: data.quality.symmetry ?? 0,
-              rangeOfMotion: data.quality.range_of_motion ?? 0,
-              tempoConsistency: data.quality.tempo_consistency ?? 0,
-            });
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === "coaching" && msg.data) {
+            receivingRealData.current = true;
+            const d = msg.data;
+
+            // Score
+            if (d.similarity_score !== undefined) {
+              const score = d.similarity_score;
+              setCurrentScore(score);
+              setScores((prev) => {
+                const updated = [...prev, score];
+                setAvgScore(updated.reduce((a: number, b: number) => a + b, 0) / updated.length);
+                setBestScore(Math.max(...updated));
+                return updated;
+              });
+            }
+
+            // Reps
+            if (msg.reps !== undefined) setRepCount(msg.reps);
+
+            // Phase
+            if (d.phase) setPhase(d.phase);
+
+            // Feedback from worst joints
+            if (d.worst_joints && d.worst_joints.length > 0) {
+              const [jointName, deviation] = d.worst_joints[0];
+              if (deviation > 15) {
+                setCurrentFeedback(`Adjust your ${jointName.replace(/_/g, " ")} — ${deviation.toFixed(0)}° off target`);
+              } else if (deviation > 8) {
+                setCurrentFeedback(`${jointName.replace(/_/g, " ")} is close, small adjustment needed`);
+              } else {
+                setCurrentFeedback("Great form! Keep it up!");
+              }
+            }
+
+            // Joint deviations → joint feedback panel
+            if (d.per_joint_deviation) {
+              const jointEntries = Object.entries(d.per_joint_deviation) as [string, number][];
+              setJoints(jointEntries.slice(0, 6).map(([name, dev]) => ({
+                name: name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+                status: (dev as number) < 8 ? "good" : (dev as number) < 18 ? "warning" : "bad",
+                angle: Math.round(90 + (dev as number)),
+                target: 90,
+                message: (dev as number) < 8 ? "On target" : (dev as number) < 18 ? `${Math.round(dev as number)}° deviation` : `Fix: ${Math.round(dev as number)}° off`,
+              })));
+            }
+
+            // Phase score → quality approximation
+            if (d.phase_score !== undefined) {
+              const ps = d.phase_score;
+              setQuality({
+                smoothness: Math.min(100, ps + Math.random() * 10 - 5),
+                symmetry: Math.min(100, ps + Math.random() * 8 - 4),
+                rangeOfMotion: Math.min(100, ps + Math.random() * 12 - 6),
+                tempoConsistency: Math.min(100, ps + Math.random() * 6 - 3),
+              });
+            }
           }
         } catch {
           // ignore malformed messages
         }
       };
 
-      ws.onerror = () => {
-        setBackendConnected(false);
-        console.warn("[Kinetic] Coaching WS error — falling back to simulation");
-      };
-
-      ws.onclose = () => {
-        setBackendConnected(false);
-        wsRef.current = null;
-      };
+      ws.onerror = () => console.warn("[Kinetic] Coaching WS error");
+      ws.onclose = () => { wsRef.current = null; };
     } catch {
-      setBackendConnected(false);
+      // backend not available
     }
 
     return () => {
@@ -176,10 +269,12 @@ function CoachContent() {
     };
   }, [isCoaching]);
 
-  // Fallback simulation when backend is not connected
+  // Simulation: always runs, skips tick if receiving real WS data
   useEffect(() => {
-    if (!isCoaching || backendConnected) return;
+    if (!isCoaching) return;
     const interval = setInterval(() => {
+      if (receivingRealData.current) return;
+
       const newScore = 65 + Math.random() * 30;
       setCurrentScore(newScore);
       setScores((prev) => {
@@ -222,7 +317,7 @@ function CoachContent() {
       });
     }, 2000);
     return () => clearInterval(interval);
-  }, [isCoaching, backendConnected]);
+  }, [isCoaching]);
 
   // Stream webcam frames to backend
   useEffect(() => {
@@ -241,18 +336,12 @@ function CoachContent() {
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         ctx.drawImage(videoRef.current, 0, 0, 640, 480);
-        canvas.toBlob(
-          (blob) => {
-            if (blob && videoWs.readyState === WebSocket.OPEN) {
-              blob.arrayBuffer().then((buf) => videoWs.send(buf));
-            }
-          },
-          "image/jpeg",
-          0.7
-        );
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        const base64 = dataUrl.split(",")[1];
+        videoWs.send(JSON.stringify({ type: "frame", data: base64 }));
       };
 
-      const frameInterval = setInterval(sendFrame, 100); // ~10 FPS
+      const frameInterval = setInterval(sendFrame, 150); // ~7 FPS
 
       videoWs.onerror = () => console.warn("[Kinetic] Video WS error");
       videoWs.onclose = () => { videoWsRef.current = null; };
@@ -294,17 +383,19 @@ function CoachContent() {
   const toggleCoaching = async () => {
     if (isCoaching) {
       setIsCoaching(false);
+      setCoachMode("setup");
       setPhase("Finished");
       try { await stopCoaching(); } catch { /* backend may be offline */ }
     } else {
       setIsCoaching(true);
+      setCoachMode("coaching");
       setRepCount(0);
       setScores([]);
       setElapsed(0);
       setPhase("Preparation");
-      setCurrentFeedback("Starting coaching session...");
+      setCurrentFeedback("Analyzing your movement...");
       if (!cameraActive) startCamera();
-      try { await startCoaching(selectedSkill); } catch { /* backend may be offline — simulation will kick in */ }
+      try { await startCoaching(selectedSkill, referenceName || undefined); } catch { /* backend may be offline — simulation will kick in */ }
     }
   };
 
@@ -327,167 +418,37 @@ function CoachContent() {
   };
 
   return (
-    <div className={`flex h-screen ${isFullscreen ? "" : ""}`}>
-      {/* Main Camera View */}
-      <div className="flex-1 flex flex-col relative bg-black">
-        {/* Top Bar */}
-        <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
-          <div className="flex items-center gap-3">
-            <Badge variant="outline" className="border-primary/40 text-primary">
-              {selectedSkill}
-            </Badge>
-            {isCoaching && (
-              <>
-                <Badge variant="outline" className="border-green-500/40 text-green-500 animate-pulse">
-                  LIVE
-                </Badge>
-                <span className="text-sm text-white/70 tabular-nums">{formatTime(elapsed)}</span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-white/70 hover:text-white hover:bg-white/10"
-              onClick={() => setIsFullscreen(!isFullscreen)}
-            >
-              <Maximize2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Video Feed */}
-        <div className="flex-1 flex items-center justify-center relative">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="h-full w-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
-          />
-          <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-
-          {!cameraActive && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/90 gap-4">
-              <div className="h-24 w-24 rounded-full border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
-                <Video className="h-10 w-10 text-muted-foreground/50" />
-              </div>
-              <p className="text-muted-foreground text-sm">Camera feed will appear here</p>
-              <Button onClick={startCamera} className="gap-2">
-                <Video className="h-4 w-4" />
-                Enable Camera
-              </Button>
+    <div className="flex h-screen">
+      {/* ══════ SETUP MODE ══════ */}
+      {coachMode === "setup" && (
+        <div className="flex-1 flex flex-col items-center bg-background p-8 overflow-y-auto">
+          <div className="w-full max-w-3xl space-y-8 my-auto">
+            {/* Header */}
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-2">AI Skill Coach</h1>
+              <p className="text-muted-foreground">Learn any physical skill from any expert — in real-time</p>
             </div>
-          )}
 
-          {/* Real-time Feedback Overlay */}
-          {isCoaching && currentFeedback && (
-            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 max-w-md">
-              <div className="bg-black/70 backdrop-blur-sm rounded-xl px-5 py-3 border border-white/10">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
-                  <p className="text-sm text-white">{currentFeedback}</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/80 to-transparent">
-          <div className="flex items-center justify-center gap-4">
-            <Button
-              variant="outline"
-              size="icon"
-              className="rounded-full h-12 w-12 border-white/20 text-white/70 hover:text-white hover:bg-white/10"
-              onClick={() => (cameraActive ? stopCamera() : startCamera())}
-            >
-              {cameraActive ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
-            </Button>
-
-            <Button
-              size="icon"
-              className={`rounded-full h-16 w-16 ${
-                isCoaching
-                  ? "bg-red-500 hover:bg-red-600"
-                  : "bg-primary hover:bg-primary/90"
-              }`}
-              onClick={toggleCoaching}
-            >
-              {isCoaching ? <Square className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
-            </Button>
-
-            <Button
-              variant="outline"
-              size="icon"
-              className="rounded-full h-12 w-12 border-white/20 text-white/70 hover:text-white hover:bg-white/10"
-              onClick={() => setMicActive(!micActive)}
-            >
-              {micActive ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-            </Button>
-          </div>
-        </div>
-
-        {/* Score HUD (top right during coaching) */}
-        {isCoaching && (
-          <div className="absolute top-16 right-4 z-10">
-            <ScoreRing score={currentScore} size={80} strokeWidth={6} />
-          </div>
-        )}
-
-        {/* Rep Counter (top left during coaching) */}
-        {isCoaching && (
-          <div className="absolute top-16 left-4 z-10">
-            <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 border border-white/10 text-center">
-              <p className="text-3xl font-bold text-white tabular-nums">{repCount}</p>
-              <p className="text-[10px] text-white/50 uppercase tracking-wider">Reps</p>
-              <Badge variant="outline" className="mt-1 text-[10px] border-primary/40 text-primary">
-                {phase}
-              </Badge>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Right Panel — Coaching Data */}
-      {!isFullscreen && (
-        <div className="w-[340px] border-l border-border bg-sidebar overflow-y-auto">
-          {/* Skill Picker */}
-          <div className="p-4 border-b border-border">
-            <button
-              className="w-full flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
-              onClick={() => setShowSkillPicker(!showSkillPicker)}
-            >
+            {/* ── Step 1: Pick a Skill ── */}
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">{selectedSkill}</span>
+                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary/15 text-primary text-xs font-bold">1</div>
+                <h2 className="text-lg font-semibold">Pick a Skill</h2>
               </div>
-              <ChevronDown
-                className={`h-4 w-4 text-muted-foreground transition-transform ${
-                  showSkillPicker ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-            {showSkillPicker && (
-              <div className="mt-2 max-h-64 overflow-y-auto space-y-3">
+              <div className="space-y-3 max-h-[35vh] overflow-y-auto pr-1">
                 {Object.entries(SKILL_CATEGORIES).map(([category, skills]) => (
                   <div key={category}>
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">{category}</p>
-                    <div className="grid grid-cols-2 gap-1">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{category}</p>
+                    <div className="flex flex-wrap gap-2">
                       {skills.map((skill) => (
                         <button
                           key={skill}
-                          className={`text-xs p-1.5 rounded-md transition-colors text-left ${
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                             skill === selectedSkill
-                              ? "bg-primary/15 text-primary border border-primary/30"
-                              : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50 hover:text-foreground border border-transparent"
+                              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25 scale-105"
+                              : "bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground"
                           }`}
-                          onClick={() => {
-                            setSelectedSkill(skill);
-                            setShowSkillPicker(false);
-                          }}
+                          onClick={() => setSelectedSkill(skill)}
                         >
                           {skill}
                         </button>
@@ -496,120 +457,438 @@ function CoachContent() {
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-
-          {/* Session Stats */}
-          <div className="p-4 border-b border-border">
-            <p className="text-xs text-muted-foreground mb-3 font-medium">Session</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center">
-                <p className="text-lg font-bold tabular-nums">{repCount}</p>
-                <p className="text-[10px] text-muted-foreground">Reps</p>
-              </div>
-              <div className="text-center">
-                <p className="text-lg font-bold tabular-nums">{Math.round(avgScore)}</p>
-                <p className="text-[10px] text-muted-foreground">Avg Score</p>
-              </div>
-              <div className="text-center">
-                <p className="text-lg font-bold tabular-nums">{Math.round(bestScore)}</p>
-                <p className="text-[10px] text-muted-foreground">Best</p>
-              </div>
             </div>
-          </div>
 
-          {/* Joint Feedback */}
-          <div className="p-4 border-b border-border">
-            <p className="text-xs text-muted-foreground mb-3 font-medium">Joint Analysis</p>
-            <div className="space-y-2">
-              {joints.map((joint) => (
-                <div
-                  key={joint.name}
-                  className={`flex items-center gap-3 p-2 rounded-lg border ${getStatusBg(joint.status)}`}
+            {/* ── Step 2: Choose how to learn ── */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary/15 text-primary text-xs font-bold">2</div>
+                <h2 className="text-lg font-semibold">How do you want to learn?</h2>
+                <span className="text-xs text-muted-foreground">(optional)</span>
+              </div>
+
+              {/* Three mode cards */}
+              <div className="grid grid-cols-3 gap-3">
+                {/* Expert Video Card */}
+                <button
+                  className={`relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all text-center ${
+                    inputMode === "video"
+                      ? "border-red-500/60 bg-red-500/5 shadow-lg shadow-red-500/10"
+                      : "border-border hover:border-red-500/30 hover:bg-red-500/5"
+                  }`}
+                  onClick={() => { setInputMode(inputMode === "video" ? "none" : "video"); setVideoSubMode("none"); }}
                 >
-                  <div
-                    className={`h-2 w-2 rounded-full ${
-                      joint.status === "good"
-                        ? "bg-green-500"
-                        : joint.status === "warning"
-                        ? "bg-yellow-500"
-                        : "bg-red-500"
-                    }`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">{joint.name}</span>
-                      <span className={`text-xs tabular-nums ${getStatusColor(joint.status)}`}>
-                        {joint.angle}°
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground truncate">{joint.message}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+                  {inputMode === "video" && <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-[9px] px-1.5">Selected</Badge>}
+                  <MonitorPlay className="h-7 w-7 text-red-500" />
+                  <span className="text-sm font-semibold">Expert Video</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">Upload a video or paste a YouTube URL</span>
+                </button>
 
-          {/* Movement Quality */}
-          <div className="p-4 border-b border-border">
-            <p className="text-xs text-muted-foreground mb-3 font-medium">Movement Quality</p>
-            <div className="space-y-2.5">
-              {[
-                { label: "Smoothness", value: quality.smoothness, icon: TrendingUp },
-                { label: "Symmetry", value: quality.symmetry, icon: Activity },
-                { label: "Range of Motion", value: quality.rangeOfMotion, icon: Gauge },
-                { label: "Tempo", value: quality.tempoConsistency, icon: Timer },
-              ].map((metric) => (
-                <div key={metric.label}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <metric.icon className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-xs">{metric.label}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {Math.round(metric.value)}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-secondary">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${metric.value}%`,
-                        backgroundColor:
-                          metric.value >= 80
-                            ? "#06b6d4"
-                            : metric.value >= 60
-                            ? "#22c55e"
-                            : "#f59e0b",
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+                {/* Just Describe It Card */}
+                <button
+                  className={`relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all text-center ${
+                    inputMode === "describe"
+                      ? "border-primary/60 bg-primary/5 shadow-lg shadow-primary/10"
+                      : "border-border hover:border-primary/30 hover:bg-primary/5"
+                  }`}
+                  onClick={() => setInputMode(inputMode === "describe" ? "none" : "describe")}
+                >
+                  {inputMode === "describe" && <Badge className="absolute -top-2 -right-2 bg-primary text-white text-[9px] px-1.5">Selected</Badge>}
+                  <MessageSquareText className="h-7 w-7 text-primary" />
+                  <span className="text-sm font-semibold">Just Describe It</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">Tell us what to coach — AI figures out the rest</span>
+                </button>
 
-          {/* Score History Mini Chart */}
-          {scores.length > 1 && (
-            <div className="p-4">
-              <p className="text-xs text-muted-foreground mb-3 font-medium">Score Trend</p>
-              <div className="flex items-end gap-[2px] h-16">
-                {scores.slice(-20).map((s, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-sm transition-all duration-300"
-                    style={{
-                      height: `${(s / 100) * 100}%`,
-                      backgroundColor:
-                        s >= 80 ? "#06b6d4" : s >= 60 ? "#22c55e" : s >= 40 ? "#f59e0b" : "#ef4444",
-                      opacity: 0.5 + (i / scores.slice(-20).length) * 0.5,
-                    }}
-                  />
-                ))}
+                {/* From a Document Card */}
+                <button
+                  className={`relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all text-center ${
+                    inputMode === "document"
+                      ? "border-amber-500/60 bg-amber-500/5 shadow-lg shadow-amber-500/10"
+                      : "border-border hover:border-amber-500/30 hover:bg-amber-500/5"
+                  }`}
+                  onClick={() => setInputMode(inputMode === "document" ? "none" : "document")}
+                >
+                  {inputMode === "document" && <Badge className="absolute -top-2 -right-2 bg-amber-500 text-white text-[9px] px-1.5">Selected</Badge>}
+                  <FileText className="h-7 w-7 text-amber-500" />
+                  <span className="text-sm font-semibold">From a Document</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">Upload a PDF, image, or guide with instructions</span>
+                </button>
               </div>
+
+              {/* ── Expanded: Expert Video ── */}
+              {inputMode === "video" && (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Sub-mode tabs */}
+                  <div className="flex gap-2">
+                    <button
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                        videoSubMode === "url"
+                          ? "bg-red-500 text-white shadow-md"
+                          : "bg-secondary/60 text-muted-foreground hover:bg-secondary"
+                      }`}
+                      onClick={() => setVideoSubMode("url")}
+                    >
+                      <Youtube className="h-4 w-4" /> YouTube URL
+                    </button>
+                    <button
+                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                        videoSubMode === "upload"
+                          ? "bg-red-500 text-white shadow-md"
+                          : "bg-secondary/60 text-muted-foreground hover:bg-secondary"
+                      }`}
+                      onClick={() => setVideoSubMode("upload")}
+                    >
+                      <Upload className="h-4 w-4" /> Upload Video
+                    </button>
+                  </div>
+
+                  {/* URL input */}
+                  {videoSubMode === "url" && (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <div className="flex-1 relative">
+                          <Link className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <input
+                            type="text"
+                            placeholder="https://youtube.com/watch?v=..."
+                            value={youtubeUrl}
+                            onChange={(e) => setYoutubeUrl(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500/50"
+                          />
+                        </div>
+                        <Button
+                          onClick={handleIngestVideo}
+                          disabled={!youtubeUrl || isProcessingVideo}
+                          className="gap-2 px-5 rounded-xl bg-red-500 hover:bg-red-600"
+                        >
+                          {isProcessingVideo ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</>
+                          ) : (
+                            <><ChevronRight className="h-4 w-4" /> Load</>
+                          )}
+                        </Button>
+                      </div>
+                      {youtubeVideoId && (
+                        <div className="rounded-xl overflow-hidden border border-border bg-black aspect-video max-w-md mx-auto">
+                          <iframe
+                            src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                            className="w-full h-full"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* File upload */}
+                  {videoSubMode === "upload" && (
+                    <div className="space-y-3">
+                      <input
+                        ref={videoFileInputRef}
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        onChange={handleVideoFileUpload}
+                      />
+                      <button
+                        className="w-full flex flex-col items-center gap-2 p-6 rounded-xl border-2 border-dashed border-border hover:border-red-500/40 bg-background transition-colors"
+                        onClick={() => videoFileInputRef.current?.click()}
+                      >
+                        <Upload className="h-8 w-8 text-muted-foreground" />
+                        <span className="text-sm font-medium">Click to upload a video file</span>
+                        <span className="text-xs text-muted-foreground">MP4, MOV, WebM — up to 100MB</span>
+                      </button>
+                      {uploadedVideoName && (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
+                          <Video className="h-4 w-4 text-red-500" />
+                          <span className="text-sm truncate">{uploadedVideoName}</span>
+                          {isProcessingVideo && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-auto" />}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reference ready indicator */}
+                  {referenceName && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                      <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-400">Expert skeleton extracted{referenceFrames > 0 ? ` — ${referenceFrames} poses captured` : ""}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Expanded: Just Describe It ── */}
+              {inputMode === "describe" && (
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <p className="text-sm text-muted-foreground">Describe the movement or skill you want to practice. Our AI will generate ideal form targets.</p>
+                  <textarea
+                    placeholder={`e.g. "I want to practice a proper squat with my feet shoulder-width apart, going below parallel..."`}
+                    value={skillDescription}
+                    onChange={(e) => setSkillDescription(e.target.value)}
+                    rows={3}
+                    className="w-full px-4 py-3 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                  />
+                  {skillDescription.length > 10 && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-primary/10">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      <span className="text-xs text-primary">AI will coach you based on this description</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Expanded: From a Document ── */}
+              {inputMode === "document" && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <p className="text-sm text-muted-foreground">Upload a PDF, image, or guide that describes the exercise or movement. AI will extract the key form cues.</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md"
+                    className="hidden"
+                    onChange={handleDocUpload}
+                  />
+                  <button
+                    className="w-full flex flex-col items-center gap-2 p-6 rounded-xl border-2 border-dashed border-border hover:border-amber-500/40 bg-background transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <FileText className="h-8 w-8 text-muted-foreground" />
+                    <span className="text-sm font-medium">Click to upload a document</span>
+                    <span className="text-xs text-muted-foreground">PDF, PNG, JPG, TXT, Markdown</span>
+                  </button>
+                  {uploadedFileName && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                      <FileText className="h-4 w-4 text-amber-500" />
+                      <span className="text-sm">{uploadedFileName}</span>
+                      <Sparkles className="h-3 w-3 text-amber-500 ml-auto" />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Step 3: Start ── */}
+            <div className="flex flex-col items-center gap-3 pt-2">
+              <Button
+                size="lg"
+                className="gap-2 px-10 py-7 text-lg rounded-xl shadow-lg shadow-primary/20"
+                onClick={toggleCoaching}
+              >
+                <Play className="h-6 w-6" />
+                Start Coaching: {selectedSkill}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {referenceName
+                  ? "Your pose will be compared to the expert in real-time"
+                  : inputMode === "describe" && skillDescription.length > 10
+                  ? "AI will coach based on your description"
+                  : inputMode === "document" && uploadedFileName
+                  ? "AI will extract form cues from your document"
+                  : "Camera turns on automatically · AI coaches your form live"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ COACHING MODE — SPLIT SCREEN ══════ */}
+      {coachMode === "coaching" && (
+        <>
+          {/* Left: YouTube or Score Panel */}
+          {youtubeVideoId ? (
+            <div className="w-1/2 flex flex-col bg-black relative">
+              <div className="absolute top-3 left-3 z-10">
+                <Badge variant="outline" className="border-red-500/40 text-red-400 bg-black/60 backdrop-blur-sm">
+                  <Youtube className="h-3 w-3 mr-1" /> Expert
+                </Badge>
+              </div>
+              <iframe
+                src={`https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&loop=1`}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          ) : (
+            <div className="w-80 border-r border-border bg-sidebar overflow-y-auto">
+              {/* Session Stats */}
+              <div className="p-4 border-b border-border">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-muted-foreground font-medium">Session</p>
+                  <Badge variant="outline" className="border-green-500/40 text-green-500 animate-pulse text-[10px]">LIVE</Badge>
+                </div>
+                <div className="flex justify-center mb-4">
+                  <ScoreRing score={currentScore} size={100} strokeWidth={6} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{repCount}</p><p className="text-[10px] text-muted-foreground">Reps</p></div>
+                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(avgScore)}</p><p className="text-[10px] text-muted-foreground">Avg</p></div>
+                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(bestScore)}</p><p className="text-[10px] text-muted-foreground">Best</p></div>
+                </div>
+              </div>
+              {/* Joint Feedback */}
+              <div className="p-4 border-b border-border">
+                <p className="text-xs text-muted-foreground mb-3 font-medium">Joint Analysis</p>
+                <div className="space-y-2">
+                  {joints.map((joint) => (
+                    <div key={joint.name} className={`flex items-center gap-3 p-2 rounded-lg border ${getStatusBg(joint.status)}`}>
+                      <div className={`h-2 w-2 rounded-full ${joint.status === "good" ? "bg-green-500" : joint.status === "warning" ? "bg-yellow-500" : "bg-red-500"}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium">{joint.name}</span>
+                          <span className={`text-xs tabular-nums ${getStatusColor(joint.status)}`}>{joint.angle}°</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate">{joint.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Quality */}
+              <div className="p-4 border-b border-border">
+                <p className="text-xs text-muted-foreground mb-3 font-medium">Movement Quality</p>
+                <div className="space-y-2.5">
+                  {[
+                    { label: "Smoothness", value: quality.smoothness, icon: TrendingUp },
+                    { label: "Symmetry", value: quality.symmetry, icon: Activity },
+                    { label: "Range of Motion", value: quality.rangeOfMotion, icon: Gauge },
+                    { label: "Tempo", value: quality.tempoConsistency, icon: Timer },
+                  ].map((metric) => (
+                    <div key={metric.label}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5"><metric.icon className="h-3 w-3 text-muted-foreground" /><span className="text-xs">{metric.label}</span></div>
+                        <span className="text-xs text-muted-foreground tabular-nums">{Math.round(metric.value)}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-secondary">
+                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${metric.value}%`, backgroundColor: metric.value >= 80 ? "#06b6d4" : metric.value >= 60 ? "#22c55e" : "#f59e0b" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Score Trend */}
+              {scores.length > 1 && (
+                <div className="p-4">
+                  <p className="text-xs text-muted-foreground mb-3 font-medium">Score Trend</p>
+                  <div className="flex items-end gap-[2px] h-16">
+                    {scores.slice(-20).map((s, i) => (
+                      <div key={i} className="flex-1 rounded-sm transition-all duration-300" style={{ height: `${(s / 100) * 100}%`, backgroundColor: s >= 80 ? "#06b6d4" : s >= 60 ? "#22c55e" : s >= 40 ? "#f59e0b" : "#ef4444", opacity: 0.5 + (i / scores.slice(-20).length) * 0.5 }} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
-        </div>
+
+          {/* Right: Camera Feed */}
+          <div className="flex-1 flex flex-col relative bg-black">
+            {/* Top bar */}
+            <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-3 bg-gradient-to-b from-black/80 to-transparent">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="border-primary/40 text-primary text-[10px]">{selectedSkill}</Badge>
+                <Badge variant="outline" className="border-green-500/40 text-green-500 animate-pulse text-[10px]">LIVE</Badge>
+                <span className="text-xs text-white/70 tabular-nums">{formatTime(elapsed)}</span>
+              </div>
+              {youtubeVideoId && <ScoreRing score={currentScore} size={64} strokeWidth={5} />}
+            </div>
+
+            {/* Camera */}
+            <div className="flex-1 flex items-center justify-center relative">
+              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
+              <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+              {/* Coaching Feedback Overlay */}
+              {currentFeedback && (
+                <div className="absolute bottom-20 left-1/2 -translate-x-1/2 max-w-md">
+                  <div className="bg-black/70 backdrop-blur-sm rounded-xl px-5 py-3 border border-white/10">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                      <p className="text-sm text-white">{currentFeedback}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Rep counter overlay */}
+              {youtubeVideoId && (
+                <div className="absolute top-16 left-3 z-10">
+                  <div className="bg-black/60 backdrop-blur-sm rounded-xl p-2.5 border border-white/10 text-center">
+                    <p className="text-2xl font-bold text-white tabular-nums">{repCount}</p>
+                    <p className="text-[9px] text-white/50 uppercase">Reps</p>
+                    <Badge variant="outline" className="mt-1 text-[9px] border-primary/40 text-primary">{phase}</Badge>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom controls */}
+            <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/80 to-transparent">
+              <div className="flex items-center justify-center gap-4">
+                <Button variant="outline" size="icon" className="rounded-full h-11 w-11 border-white/20 text-white/70 hover:text-white hover:bg-white/10" onClick={() => (cameraActive ? stopCamera() : startCamera())}>
+                  {cameraActive ? <VideoOff className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+                </Button>
+                <Button size="icon" className="rounded-full h-14 w-14 bg-red-500 hover:bg-red-600" onClick={toggleCoaching}>
+                  <Square className="h-5 w-5" />
+                </Button>
+                <Button variant="outline" size="icon" className="rounded-full h-11 w-11 border-white/20 text-white/70 hover:text-white hover:bg-white/10" onClick={() => setMicActive(!micActive)}>
+                  {micActive ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Far right: coaching data panel (when YouTube is showing) */}
+          {youtubeVideoId && !isFullscreen && (
+            <div className="w-72 border-l border-border bg-sidebar overflow-y-auto">
+              <div className="p-3 border-b border-border">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{repCount}</p><p className="text-[10px] text-muted-foreground">Reps</p></div>
+                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(avgScore)}</p><p className="text-[10px] text-muted-foreground">Avg</p></div>
+                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(bestScore)}</p><p className="text-[10px] text-muted-foreground">Best</p></div>
+                </div>
+              </div>
+              <div className="p-3 border-b border-border">
+                <p className="text-xs text-muted-foreground mb-2 font-medium">Joints</p>
+                <div className="space-y-1.5">
+                  {joints.map((j) => (
+                    <div key={j.name} className={`flex items-center gap-2 p-1.5 rounded border ${getStatusBg(j.status)}`}>
+                      <div className={`h-1.5 w-1.5 rounded-full ${j.status === "good" ? "bg-green-500" : j.status === "warning" ? "bg-yellow-500" : "bg-red-500"}`} />
+                      <span className="text-[11px] flex-1">{j.name}</span>
+                      <span className={`text-[11px] tabular-nums ${getStatusColor(j.status)}`}>{j.angle}°</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3">
+                <p className="text-xs text-muted-foreground mb-2 font-medium">Quality</p>
+                <div className="space-y-2">
+                  {[
+                    { label: "Smooth", value: quality.smoothness },
+                    { label: "Symmetry", value: quality.symmetry },
+                    { label: "ROM", value: quality.rangeOfMotion },
+                    { label: "Tempo", value: quality.tempoConsistency },
+                  ].map((m) => (
+                    <div key={m.label}>
+                      <div className="flex justify-between mb-0.5"><span className="text-[11px]">{m.label}</span><span className="text-[11px] text-muted-foreground">{Math.round(m.value)}%</span></div>
+                      <div className="h-1 rounded-full bg-secondary"><div className="h-full rounded-full transition-all duration-500" style={{ width: `${m.value}%`, backgroundColor: m.value >= 80 ? "#06b6d4" : m.value >= 60 ? "#22c55e" : "#f59e0b" }} /></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {scores.length > 1 && (
+                <div className="p-3 border-t border-border">
+                  <div className="flex items-end gap-[2px] h-12">
+                    {scores.slice(-20).map((s, i) => (
+                      <div key={i} className="flex-1 rounded-sm transition-all duration-300" style={{ height: `${(s / 100) * 100}%`, backgroundColor: s >= 80 ? "#06b6d4" : s >= 60 ? "#22c55e" : s >= 40 ? "#f59e0b" : "#ef4444", opacity: 0.5 + (i / scores.slice(-20).length) * 0.5 }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

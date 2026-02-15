@@ -11,6 +11,7 @@ import {
   Settings,
   Zap,
   Mic,
+  Globe,
 } from "lucide-react";
 import {
   Tooltip,
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { href: "/skills", icon: Trophy, label: "Skills" },
   { href: "/history", icon: History, label: "History" },
   { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/product", icon: Globe, label: "Product" },
 ];
 
 export function Sidebar() {

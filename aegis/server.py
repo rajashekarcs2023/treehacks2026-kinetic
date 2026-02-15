@@ -37,6 +37,7 @@ import base64
 import json
 import time
 import os
+import subprocess
 
 import cv2
 import numpy as np
@@ -282,12 +283,25 @@ async def _run_coaching_intelligence():
                             except Exception:
                                 pass
                     
-                    # Voice: send to OpenAI Realtime for natural speech
+                    # Voice: OpenAI Realtime (primary) → macOS TTS (fallback)
+                    spoken = False
                     if openai_voice and openai_voice.is_connected:
                         try:
-                            await openai_voice.speak(speech_text)
+                            spoken = await openai_voice.speak(speech_text)
                         except Exception:
                             pass
+                    if not spoken and _coaching_ws_clients:
+                        # Fallback: browser speechSynthesis (works offline, any device)
+                        fallback_msg = json.dumps({
+                            "type": "tts_fallback",
+                            "data": speech_text,
+                        })
+                        for client in list(_coaching_ws_clients):
+                            try:
+                                await client.send_text(fallback_msg)
+                            except Exception:
+                                pass
+                        print("[Voice] Fallback: browser TTS")
             
         except Exception as e:
             print(f"[Agent] Coaching intelligence error: {e}")

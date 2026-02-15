@@ -371,6 +371,20 @@ function CoachContent() {
           if (msg.type === "agent_feedback" && msg.data) {
             setCurrentFeedback(msg.data);
           }
+
+          // Browser TTS fallback (when OpenAI voice is unavailable/offline)
+          if (msg.type === "tts_fallback" && msg.data && typeof window !== "undefined" && window.speechSynthesis) {
+            window.speechSynthesis.cancel(); // stop any in-progress speech
+            const utter = new SpeechSynthesisUtterance(msg.data);
+            utter.rate = 1.1;
+            utter.pitch = 1.0;
+            utter.volume = 1.0;
+            // Prefer a natural-sounding voice
+            const voices = window.speechSynthesis.getVoices();
+            const preferred = voices.find((v) => v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Google"));
+            if (preferred) utter.voice = preferred;
+            window.speechSynthesis.speak(utter);
+          }
         } catch {
           // ignore malformed messages
         }

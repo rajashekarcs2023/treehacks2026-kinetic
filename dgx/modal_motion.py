@@ -231,7 +231,7 @@ def generate(prompt: str, num_frames: int = 60):
     if motion_data is not None:
         if isinstance(motion_data, dict):
             # Look for joint data in common keys
-            for key in ["joints", "motion", "positions", "joint_positions", "pred_motion"]:
+            for key in ["keypoints3d", "joints", "motion", "positions", "joint_positions", "pred_motion"]:
                 if key in motion_data:
                     data = motion_data[key]
                     if hasattr(data, 'cpu'):
@@ -258,6 +258,8 @@ def generate(prompt: str, num_frames: int = 60):
 
     if joints is not None:
         # Reshape if needed: expect (num_frames, num_joints, 3)
+        while joints.ndim > 3:
+            joints = joints[0]  # Remove batch dimensions
         if joints.ndim == 2:
             # Might be (num_frames, num_joints*3)
             joints = joints.reshape(joints.shape[0], -1, 3)

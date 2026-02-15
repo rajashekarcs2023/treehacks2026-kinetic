@@ -210,7 +210,9 @@ kinetic/
 
 ## Built at TreeHacks 2026 🌲
 
-Built in 20 hours by a solo developer using:
+Solo-built in 20 hours. 17,000+ lines. 10 models. 6 infrastructure pillars.
+
+**Powered by:**
 - **Anthropic** Claude Sonnet 4 + Agent SDK
 - **OpenAI** GPT-4o Realtime API
 - **NVIDIA** DGX Spark (GB10 Superchip)

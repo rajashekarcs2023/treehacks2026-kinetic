@@ -20,6 +20,7 @@ Usage:
 """
 
 import math
+import os
 import time
 import json
 import numpy as np
@@ -815,6 +816,75 @@ async def generate_motion_from_dgx(skill_description: str,
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# TIER 4: MODAL A100 — DIRECT HY-MOTION GENERATION
+# ═══════════════════════════════════════════════════════════════════════
+
+MODAL_MOTION_URL = os.environ.get(
+    "MODAL_MOTION_URL",
+    "https://rajashekarvennavelli--aegis-motion-generate-endpoint.modal.run",
+)
+
+
+async def generate_motion_from_modal(skill_description: str,
+                                      num_frames: int = 60) -> Optional[SkeletonSequence]:
+    """Generate 3D motion via HY-Motion 1.0-Lite on Modal A100 GPU.
+
+    Calls the deployed Modal endpoint directly — no DGX proxy needed.
+    Returns a SkeletonSequence ready for pose comparison.
+    """
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post(
+                MODAL_MOTION_URL,
+                json={"prompt": f"a person doing a {skill_description}", "num_frames": num_frames},
+            )
+
+        if resp.status_code != 200:
+            print(f"[Modal Motion] HTTP {resp.status_code}: {resp.text[:200]}")
+            return None
+
+        data = resp.json()
+        if "error" in data:
+            print(f"[Modal Motion] Error: {data['error']}")
+            return None
+
+        keypoints = data.get("keypoints", [])
+        if not keypoints:
+            return None
+
+        skeletons = []
+        for i, frame_kps in enumerate(keypoints):
+            points = [(kp["x"], kp["y"], kp.get("vis", 0.95)) for kp in frame_kps]
+            if len(points) >= 33:
+                skel = normalize_skeleton(points)
+                skel.timestamp = i / 30.0
+                skeletons.append(skel)
+
+        if skeletons:
+            seq = SkeletonSequence(
+                name=f"modal_hymotion_{skill_description}",
+                skeletons=skeletons,
+            )
+            seq.metadata = {
+                "source": "modal_hymotion_a100",
+                "model": data.get("model", "HY-Motion 1.0-Lite"),
+                "device": data.get("device", "NVIDIA A100"),
+                "prompt": skill_description,
+                "generation_ms": data.get("generation_ms", 0),
+                "num_frames": data.get("num_frames", len(skeletons)),
+            }
+            print(f"[Modal Motion] Generated {len(skeletons)} frames in {data.get('generation_ms', '?')}ms")
+            return seq
+
+    except Exception as e:
+        print(f"[Modal Motion] Failed: {e}")
+
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # CONVENIENCE
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -822,20 +892,30 @@ async def get_best_expert(skill: str, dgx_client=None,
                           anthropic_client=None) -> Optional[SkeletonSequence]:
     """Get the best available expert reference for a skill.
 
-    Priority: DGX motion generation → Canonical template → Claude generation
+    Priority: Canonical → Claude → Modal A100 (for novel skills)
+    Canonical is instant, Claude is ~1s, Modal is ~26s.
     """
-    # Tier 3: DGX (if available)
-    if dgx_client and dgx_client.is_available:
-        result = await generate_motion_from_dgx(skill, dgx_client)
-        if result:
-            return result
-
     # Tier 1: Canonical (instant)
     result = generate_expert_sequence(skill)
     if result:
         return result
 
-    # Tier 2: Claude (async)
-    return await generate_expert_sequence_from_description(
+    # Tier 2+3: Claude semantic mapping + angle generation (~1s)
+    result = await generate_expert_sequence_from_description(
         skill, anthropic_client
     )
+    if result:
+        return result
+
+    # Tier 4: Modal A100 — HY-Motion 1.0 (SOTA, ~26s, for truly novel skills)
+    result = await generate_motion_from_modal(skill)
+    if result:
+        return result
+
+    # Tier 3 (legacy): DGX proxy (if available)
+    if dgx_client and dgx_client.is_available:
+        result = await generate_motion_from_dgx(skill, dgx_client)
+        if result:
+            return result
+
+    return None

@@ -14,7 +14,7 @@ No expert video needed. Just describe the skill and Kinetic generates the refere
 
 **Live Endpoints:**
 - 🚀 **Modal Motion API**: `https://rajashekarvennavelli--aegis-motion-generate-endpoint.modal.run`
-- 🖥️ **DGX Spark Edge AI**: Real-time pose estimation on NVIDIA GB10 Superchip
+- 🖥️ **DGX Spark Edge AI**: 17-keypoint real-time pose estimation on NVIDIA GB10 Superchip
 
 ---
 

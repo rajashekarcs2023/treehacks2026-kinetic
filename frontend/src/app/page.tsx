@@ -34,30 +34,33 @@ interface SessionSummary {
 }
 
 const MOCK_SESSIONS: SessionSummary[] = [
-  { id: "1", skill: "Tennis Serve", category: "Sports", score: 74, reps: 8, duration: "5:30", time: "1h ago", trend: "up" },
-  { id: "2", skill: "Salsa Basic Step", category: "Dance", score: 88, reps: 12, duration: "7:00", time: "3h ago", trend: "up" },
-  { id: "3", skill: "Squat", category: "Fitness", score: 82, reps: 15, duration: "4:30", time: "5h ago", trend: "up" },
-  { id: "4", skill: "Warrior Pose", category: "Yoga", score: 91, reps: 6, duration: "6:15", time: "Yesterday", trend: "same" },
-  { id: "5", skill: "Knee Extension", category: "PT Rehab", score: 85, reps: 10, duration: "3:00", time: "Yesterday", trend: "up" },
+  { id: "1", skill: "Knee Extension", category: "PT Rehab", score: 85, reps: 10, duration: "4:30", time: "1h ago", trend: "up" },
+  { id: "2", skill: "Warrior Pose", category: "Yoga", score: 91, reps: 6, duration: "6:15", time: "2h ago", trend: "up" },
+  { id: "3", skill: "Sit-to-Stand", category: "Elderly", score: 78, reps: 8, duration: "3:00", time: "3h ago", trend: "up" },
+  { id: "4", skill: "ASL Alphabet", category: "Sign Lang", score: 88, reps: 12, duration: "5:00", time: "Yesterday", trend: "up" },
+  { id: "5", skill: "Salsa Basic Step", category: "Dance", score: 82, reps: 15, duration: "7:00", time: "Yesterday", trend: "same" },
 ];
 
 const SKILL_CATEGORIES = [
-  { name: "Fitness", icon: Dumbbell, color: "text-blue-400", bg: "bg-blue-500/10", examples: "Squats, Deadlifts, Push-ups" },
-  { name: "Dance", icon: Music, color: "text-pink-400", bg: "bg-pink-500/10", examples: "Salsa, Hip-hop, Ballet" },
-  { name: "Sports", icon: Swords, color: "text-orange-400", bg: "bg-orange-500/10", examples: "Tennis, Golf, Boxing" },
-  { name: "Yoga", icon: Sparkles, color: "text-purple-400", bg: "bg-purple-500/10", examples: "Warrior, Tree, Crow" },
-  { name: "PT & Rehab", icon: HeartPulse, color: "text-emerald-400", bg: "bg-emerald-500/10", examples: "Knee, Shoulder, Gait" },
-  { name: "Sign Language", icon: Hand, color: "text-yellow-400", bg: "bg-yellow-500/10", examples: "ASL Signs, Alphabet" },
-  { name: "Music", icon: Music, color: "text-cyan-400", bg: "bg-cyan-500/10", examples: "Guitar, Piano, Drums" },
-  { name: "Ergonomics", icon: Monitor, color: "text-slate-400", bg: "bg-slate-500/10", examples: "Posture, Lifting, Typing" },
+  { name: "PT & Rehab", icon: HeartPulse, color: "text-emerald-400", bg: "bg-emerald-500/10", examples: "Knee, Shoulder, Hip" },
+  { name: "Yoga", icon: Sparkles, color: "text-purple-400", bg: "bg-purple-500/10", examples: "Warrior, Tree, Sun" },
+  { name: "Sign Language", icon: Hand, color: "text-yellow-400", bg: "bg-yellow-500/10", examples: "ASL, Greetings" },
+  { name: "Elderly Care", icon: HeartPulse, color: "text-rose-400", bg: "bg-rose-500/10", examples: "Balance, Sit-Stand" },
+  { name: "Ergonomics", icon: Monitor, color: "text-slate-400", bg: "bg-slate-500/10", examples: "Posture, Lifting" },
+  { name: "Dance", icon: Music, color: "text-pink-400", bg: "bg-pink-500/10", examples: "Salsa, Ballet" },
+  { name: "Fitness", icon: Dumbbell, color: "text-blue-400", bg: "bg-blue-500/10", examples: "Squats, Push-ups" },
+  { name: "Sports", icon: Swords, color: "text-orange-400", bg: "bg-orange-500/10", examples: "Tennis, Golf" },
 ];
 
 const CATEGORY_BADGE_COLOR: Record<string, string> = {
-  Sports: "border-orange-500/40 text-orange-400",
+  "PT Rehab": "border-emerald-500/40 text-emerald-400",
+  Yoga: "border-purple-500/40 text-purple-400",
+  "Sign Lang": "border-yellow-500/40 text-yellow-400",
+  Elderly: "border-rose-500/40 text-rose-400",
+  Ergo: "border-slate-500/40 text-slate-400",
   Dance: "border-pink-500/40 text-pink-400",
   Fitness: "border-blue-500/40 text-blue-400",
-  Yoga: "border-purple-500/40 text-purple-400",
-  "PT Rehab": "border-emerald-500/40 text-emerald-400",
+  Sports: "border-orange-500/40 text-orange-400",
 };
 
 export default function Dashboard() {
@@ -82,7 +85,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
           <p className="text-muted-foreground mt-1">
-            Learn any physical skill from any expert — in real-time, through voice.
+            Master any physical skill with AI — rehab recovery, yoga, sign language, and beyond.
           </p>
         </div>
         <Link href="/coach">
@@ -221,10 +224,10 @@ export default function Dashboard() {
               <div>
                 <p className="font-medium text-sm">AI Coach Insight</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Your tennis serve shoulder rotation improved 20% since last session. For salsa,
-                  your hip movement is getting more fluid — timing is 88% on beat. I noticed your
-                  squat knee tracking is limited by ankle mobility. Try calf stretches before your
-                  next set.
+                  Your knee extension range of motion improved 15° since last session — great rehab progress!
+                  Warrior pose balance is excellent at 91%. For your elderly mobility routine,
+                  sit-to-stand form is getting stronger. I recommend adding heel raises next to
+                  improve ankle stability.
                 </p>
               </div>
             </CardContent>
@@ -291,12 +294,12 @@ export default function Dashboard() {
             <CardContent>
               <div className="space-y-3">
                 {[
-                  { name: "Salsa Basic Step", category: "Dance", level: 88 },
-                  { name: "Squat Form", category: "Fitness", level: 82 },
-                  { name: "Tennis Serve", category: "Sports", level: 74 },
                   { name: "Warrior Pose", category: "Yoga", level: 91 },
-                  { name: "Knee Extension", category: "PT", level: 85 },
-                  { name: "Guitar Posture", category: "Music", level: 62 },
+                  { name: "Knee Extension", category: "PT Rehab", level: 85 },
+                  { name: "ASL Alphabet", category: "Sign Lang", level: 88 },
+                  { name: "Sit-to-Stand", category: "Elderly", level: 78 },
+                  { name: "Salsa Basic", category: "Dance", level: 82 },
+                  { name: "Desk Posture", category: "Ergo", level: 70 },
                 ].map((skill) => (
                   <div key={skill.name} className="space-y-1">
                     <div className="flex justify-between text-xs">

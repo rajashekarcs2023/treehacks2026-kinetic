@@ -45,14 +45,16 @@ interface JointFeedback {
 }
 
 const SKILL_CATEGORIES: Record<string, string[]> = {
-  "Fitness": ["Squat", "Deadlift", "Push-up", "Lunge", "Plank", "Burpee"],
+  "Physical Therapy": ["Knee Extension", "Shoulder Raise", "Glute Bridge", "Hip Flexion", "Ankle Mobility", "Wall Sit"],
+  "Yoga & Mindfulness": ["Warrior Pose", "Tree Pose", "Downward Dog", "Chair Pose", "Sun Salutation"],
+  "Tai Chi & Balance": ["Cloud Hands", "Single Whip", "Standing Balance", "Weight Shift"],
+  "Sign Language": ["ASL Alphabet", "Common Phrases", "Finger Spelling", "Greetings"],
+  "Elderly Mobility": ["Sit-to-Stand", "Heel Raises", "Marching in Place", "Side Step"],
+  "Ergonomics": ["Desk Posture", "Proper Lifting", "Stretch Break", "Monitor Height"],
   "Dance": ["Salsa Basic", "Hip-hop Groove", "Ballet Plié", "Bachata Step"],
+  "Fitness": ["Squat", "Deadlift", "Push-up", "Lunge", "Plank"],
   "Sports": ["Tennis Serve", "Golf Swing", "Boxing Jab", "Batting Stance"],
-  "Yoga": ["Warrior Pose", "Tree Pose", "Downward Dog", "Crow Pose"],
-  "Martial Arts": ["Front Kick", "Roundhouse", "Jab-Cross", "Horse Stance"],
-  "PT & Rehab": ["Knee Extension", "Shoulder Raise", "Glute Bridge", "Wall Sit"],
-  "Music": ["Guitar Posture", "Piano Hands", "Drum Grip", "Violin Bow"],
-  "Sign Language": ["ASL Alphabet", "Common Signs", "Finger Spelling"],
+  "Music & Performance": ["Guitar Posture", "Piano Hands", "Violin Bow", "Conductor Beat"],
 };
 
 const ALL_SKILLS = Object.values(SKILL_CATEGORIES).flat();
@@ -67,7 +69,7 @@ export default function CoachPage() {
 
 function CoachContent() {
   const searchParams = useSearchParams();
-  const initialSkill = searchParams.get("skill") || "Squat";
+  const initialSkill = searchParams.get("skill") || "Warrior Pose";
   const initialMode = searchParams.get("mode") as "video" | "describe" | "document" | null;
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -644,7 +646,7 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
             {/* Header */}
             <div className="text-center">
               <h1 className="text-3xl font-bold mb-2">AI Skill Coach</h1>
-              <p className="text-muted-foreground">Learn any physical skill from any expert — in real-time</p>
+              <p className="text-muted-foreground">Master any physical skill with AI coaching — rehab, yoga, dance, and beyond</p>
             </div>
 
             {/* ── Step 1: Pick a Skill ── */}

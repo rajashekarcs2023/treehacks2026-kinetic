@@ -22,6 +22,7 @@ import {
   Monitor,
   Globe,
   FileText,
+  Layers,
 } from "lucide-react";
 
 interface SessionSummary {
@@ -85,25 +86,32 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
-            <p className="text-muted-foreground mt-1">
-              Master any physical skill with AI — rehab recovery, yoga, sign language, and beyond.
-            </p>
-          </div>
+          {/* Showcase buttons — LEFT of greeting */}
           <div className="flex flex-col gap-2 shrink-0">
             <Link href="/product">
-              <Button variant="outline" size="sm" className="gap-2 w-full justify-start">
+              <Button size="sm" className="gap-2 w-full justify-start bg-purple-600 hover:bg-purple-700 text-white">
                 <Globe className="h-4 w-4" />
                 Product
               </Button>
             </Link>
             <Link href="/paper">
-              <Button variant="outline" size="sm" className="gap-2 w-full justify-start">
+              <Button size="sm" className="gap-2 w-full justify-start bg-blue-600 hover:bg-blue-700 text-white">
                 <FileText className="h-4 w-4" />
                 Tech Paper
               </Button>
             </Link>
+            <Link href="/architecture">
+              <Button size="sm" className="gap-2 w-full justify-start bg-emerald-600 hover:bg-emerald-700 text-white">
+                <Layers className="h-4 w-4" />
+                Architecture
+              </Button>
+            </Link>
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
+            <p className="text-muted-foreground mt-1">
+              Master any physical skill with AI — rehab recovery, yoga, sign language, and beyond.
+            </p>
           </div>
         </div>
         <Link href="/coach">

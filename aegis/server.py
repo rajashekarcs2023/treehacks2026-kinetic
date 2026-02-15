@@ -1632,6 +1632,21 @@ async def monitoring_status():
     }
 
 
+@app.get("/api/frame")
+async def get_frame():
+    """Return the current camera frame as JPEG for live feed display."""
+    if engine is None:
+        from fastapi.responses import Response
+        return Response(content=b"", media_type="image/jpeg", status_code=204)
+    frame = engine.get_frame()
+    if frame is None:
+        from fastapi.responses import Response
+        return Response(content=b"", media_type="image/jpeg", status_code=204)
+    _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    from fastapi.responses import Response
+    return Response(content=jpg.tobytes(), media_type="image/jpeg")
+
+
 @app.post("/api/alert")
 async def send_alert(req: AlertRequest):
     """Send an alert via Telegram (and log it)."""

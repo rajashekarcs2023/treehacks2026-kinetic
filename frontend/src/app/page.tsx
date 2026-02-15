@@ -234,7 +234,7 @@ export default function Dashboard() {
         </Link>
 
         {/* Mode 4: Clinical Patient Safety */}
-        <Link href="/monitor?goal=elderly_care">
+        <Link href="/monitor?mode=clinical&goal=elderly_care">
           <Card className="group h-full bg-gradient-to-br from-red-500/10 to-rose-500/5 border-red-500/30 hover:border-red-500/60 hover:shadow-lg hover:shadow-red-500/10 transition-all cursor-pointer">
             <CardContent className="p-5 flex flex-col items-center text-center gap-3">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/20 group-hover:bg-red-500/30 transition-colors">

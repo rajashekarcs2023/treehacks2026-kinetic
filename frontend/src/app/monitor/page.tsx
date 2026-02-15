@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import {
   Users,
   Send,
   Video,
-  VideoOff,
   Bell,
   Clock,
   Loader2,
@@ -62,49 +61,25 @@ export default function MonitorPage() {
 
 function MonitorContent() {
   const searchParams = useSearchParams();
-  const initialGoal = searchParams.get("goal") || "elderly_care";
-  const isClinicalMode = ["elderly_care", "bed_exit", "immobility", "line_pulling", "post_op", "wandering"].includes(initialGoal);
+  const initialGoal = searchParams.get("goal") || "general";
+  const mode = searchParams.get("mode");
+  const isClinicalMode = mode === "clinical" || ["bed_exit", "immobility", "line_pulling", "post_op", "wandering"].includes(initialGoal);
   const activeGoals = isClinicalMode ? CLINICAL_GOALS : GOALS;
   const [selectedGoal, setSelectedGoal] = useState(initialGoal);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [personsDetected, setPersonsDetected] = useState(0);
-  const [cameraActive, setCameraActive] = useState(false);
   const [toolCalls, setToolCalls] = useState<{name: string; args: string; timestamp: number; result?: string}[]>([]);
   const [decisions, setDecisions] = useState<{text: string; timestamp: number}[]>([]);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const frameRef = useRef<HTMLImageElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toolPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraActive(true);
-      }
-    } catch {
-      console.error("Camera access denied");
-    }
-  }, []);
-
-  const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((t) => t.stop());
-      videoRef.current.srcObject = null;
-      setCameraActive(false);
-    }
-  }, []);
+  const framePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startMonitoring = async () => {
     setIsStarting(true);
     try {
-      if (!cameraActive) await startCamera();
-
       const res = await fetch(`${API_BASE}/api/monitoring/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -154,8 +129,22 @@ function MonitorContent() {
         ]);
         const toolData = await toolRes.json();
         const decData = await decRes.json();
-        if (toolData.tools) setToolCalls(toolData.tools.slice(-30));
-        if (decData.decisions) setDecisions(decData.decisions.slice(-10));
+        if (toolData.tools) {
+          const mapped = toolData.tools.map((t: Record<string, string>) => ({
+            name: t.tool || t.name || "unknown",
+            args: t.input_preview || t.args || "",
+            timestamp: t.timestamp,
+            result: t.result,
+          }));
+          setToolCalls(mapped.slice(-30));
+        }
+        if (decData.decisions) {
+          const mappedDec = decData.decisions.map((d: Record<string, string>) => ({
+            text: d.tool ? `${d.tool}(${d.input_preview || ""})` : d.text || "",
+            timestamp: d.timestamp,
+          }));
+          setDecisions(mappedDec.slice(-10));
+        }
       } catch { /* ignore */ }
     };
 
@@ -169,36 +158,23 @@ function MonitorContent() {
     };
   }, [isMonitoring]);
 
-  // Stream video frames to backend when monitoring
+  // Poll backend camera frames for live feed
   useEffect(() => {
-    if (!isMonitoring || !cameraActive || !videoRef.current) return;
-
-    let ws: WebSocket;
-    try {
-      const wsBase = API_BASE.replace(/^http/, "ws");
-      ws = new WebSocket(`${wsBase}/ws/video`);
-
-      const sendFrame = () => {
-        if (!videoRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
-        const canvas = document.createElement("canvas");
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.drawImage(videoRef.current, 0, 0, 640, 480);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
-        const base64 = dataUrl.split(",")[1];
-        ws.send(JSON.stringify({ type: "frame", data: base64 }));
-      };
-
-      const frameInterval = setInterval(sendFrame, 500); // 2 FPS for monitoring
-
-      return () => {
-        clearInterval(frameInterval);
-        if (ws && ws.readyState <= 1) ws.close();
-      };
-    } catch { /* backend unavailable */ }
-  }, [isMonitoring, cameraActive]);
+    if (!isMonitoring) {
+      if (framePollRef.current) clearInterval(framePollRef.current);
+      return;
+    }
+    const updateFrame = () => {
+      if (frameRef.current) {
+        frameRef.current.src = `${API_BASE}/api/frame?t=${Date.now()}`;
+      }
+    };
+    updateFrame();
+    framePollRef.current = setInterval(updateFrame, 500); // 2 FPS
+    return () => {
+      if (framePollRef.current) clearInterval(framePollRef.current);
+    };
+  }, [isMonitoring]);
 
   const goalInfo = activeGoals.find((g) => g.id === selectedGoal) || GOALS.find((g) => g.id === selectedGoal);
   const elapsed = alerts.length > 0 ? Math.round((Date.now() / 1000) - alerts[0].timestamp) : 0;
@@ -232,12 +208,12 @@ function MonitorContent() {
                     onClick={() => setSelectedGoal(goal.id)}
                     className={`relative flex flex-col items-start gap-2 p-4 rounded-xl border-2 transition-all text-left ${
                       selectedGoal === goal.id
-                        ? "border-red-500/60 bg-red-500/5 shadow-lg"
-                        : "border-border hover:border-red-500/30"
+                        ? isClinicalMode ? "border-red-500/60 bg-red-500/5 shadow-lg" : "border-blue-500/60 bg-blue-500/5 shadow-lg"
+                        : isClinicalMode ? "border-border hover:border-red-500/30" : "border-border hover:border-blue-500/30"
                     }`}
                   >
                     {selectedGoal === goal.id && (
-                      <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-[9px] px-1.5">Selected</Badge>
+                      <Badge className={`absolute -top-2 -right-2 text-white text-[9px] px-1.5 ${isClinicalMode ? "bg-red-500" : "bg-blue-500"}`}>Selected</Badge>
                     )}
                     <span className="text-2xl">{goal.icon}</span>
                     <span className="text-sm font-semibold">{goal.name}</span>
@@ -251,7 +227,7 @@ function MonitorContent() {
             <Button
               onClick={startMonitoring}
               disabled={isStarting}
-              className="w-full gap-2 py-6 text-lg rounded-xl bg-red-600 hover:bg-red-700 text-white"
+              className={`w-full gap-2 py-6 text-lg rounded-xl text-white ${isClinicalMode ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"}`}
               size="lg"
             >
               {isStarting ? (
@@ -287,22 +263,17 @@ function MonitorContent() {
               <Card className="border-border/50">
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2 mb-2">
-                    {cameraActive ? <Video className="h-4 w-4 text-green-500" /> : <VideoOff className="h-4 w-4 text-red-500" />}
+                    <Video className="h-4 w-4 text-green-500" />
                     <span className="text-sm font-semibold">Live Feed</span>
                   </div>
                   <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
+                    <img
+                      ref={frameRef}
+                      alt="Live camera feed"
                       className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0'; }}
+                      onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = '1'; }}
                     />
-                    {!cameraActive && (
-                      <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-                        <p className="text-sm">Camera starting...</p>
-                      </div>
-                    )}
                     {/* Overlay */}
                     <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-600/80 backdrop-blur-sm">
                       <div className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />

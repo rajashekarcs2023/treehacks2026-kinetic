@@ -202,24 +202,23 @@ function CoachContent() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const w = canvas.width;
-    const h = canvas.height;
+    // Use the displayed size so coordinates align with the video
+    const displayW = video.clientWidth || 640;
+    const displayH = video.clientHeight || 480;
+    canvas.width = displayW;
+    canvas.height = displayH;
+    ctx.clearRect(0, 0, displayW, displayH);
 
     // Draw connections
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     for (const [i, j] of SKELETON_CONNECTIONS) {
       if (i >= landmarks.length || j >= landmarks.length) continue;
       const [x1, y1, v1] = landmarks[i];
       const [x2, y2, v2] = landmarks[j];
       if (v1 < 0.3 || v2 < 0.3) continue;
-      // Mirror x because camera is mirrored
-      const sx1 = (1 - x1) * w, sy1 = y1 * h;
-      const sx2 = (1 - x2) * w, sy2 = y2 * h;
-      ctx.strokeStyle = "rgba(0, 255, 200, 0.7)";
+      const sx1 = x1 * displayW, sy1 = y1 * displayH;
+      const sx2 = x2 * displayW, sy2 = y2 * displayH;
+      ctx.strokeStyle = "rgba(0, 255, 200, 0.8)";
       ctx.beginPath();
       ctx.moveTo(sx1, sy1);
       ctx.lineTo(sx2, sy2);
@@ -230,11 +229,15 @@ function CoachContent() {
     for (let i = 0; i < landmarks.length && i < 33; i++) {
       const [x, y, vis] = landmarks[i];
       if (vis < 0.3) continue;
-      const sx = (1 - x) * w, sy = y * h;
-      ctx.fillStyle = vis > 0.7 ? "rgba(0, 255, 150, 0.9)" : "rgba(255, 200, 0, 0.7)";
+      const sx = x * displayW, sy = y * displayH;
+      ctx.fillStyle = vis > 0.7 ? "rgba(0, 255, 150, 1.0)" : "rgba(255, 200, 0, 0.8)";
       ctx.beginPath();
-      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.arc(sx, sy, 6, 0, Math.PI * 2);
       ctx.fill();
+      // White outline for visibility
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }, []);
 
@@ -996,8 +999,8 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
 
             {/* Camera */}
             <div className="flex-1 flex items-center justify-center relative">
-              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
-              <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ transform: "scaleX(-1)" }} />
+              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full" style={{ transform: "scaleX(-1)" }} />
+              <canvas ref={canvasRef} className="absolute inset-0 h-full w-full pointer-events-none" style={{ transform: "scaleX(-1)" }} />
 
               {/* Stats overlay — top right (when YouTube mode, no sidebar) */}
               {youtubeVideoId && (

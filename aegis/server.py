@@ -85,6 +85,100 @@ _memory_store = MemoryStore()
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
+# ── Claude Agent SDK coaching intelligence loop ──────────────────────────
+_coaching_intelligence_task: asyncio.Task | None = None
+_last_agent_rep_count = 0
+
+async def _run_coaching_intelligence():
+    """Background loop: Claude Agent SDK analyzes coaching every ~10 seconds.
+    
+    Uses MCP tools: get_coaching_progress, get_movement_quality_analysis,
+    detect_compensation_patterns, speak_to_user.
+    
+    This is the AGENTIC part — Claude autonomously:
+    1. Queries coaching state via MCP tools
+    2. Reasons about form, patterns, fatigue
+    3. Decides what feedback to give
+    4. Acts via speak_to_user (Gemini voice) + sends to frontend
+    """
+    global _last_agent_rep_count
+    _last_agent_rep_count = 0
+    check_count = 0
+    
+    # Wait for coaching to get going
+    await asyncio.sleep(5)
+    
+    while _coaching_session and agent:
+        try:
+            check_count += 1
+            current_reps = _coaching_session.get_rep_count() if _coaching_session else 0
+            
+            # Build a coaching prompt that triggers tool use
+            if check_count == 1:
+                # First check — introduce yourself
+                prompt = (
+                    f"A coaching session just started for '{_coaching_session.skill_name}'. "
+                    "Use get_coaching_progress to check the current state. "
+                    "Give a brief encouraging opening via speak_to_user. "
+                    "Keep it to 1 sentence."
+                )
+            elif current_reps > _last_agent_rep_count:
+                # New reps completed — analyze form
+                _last_agent_rep_count = current_reps
+                prompt = (
+                    f"The user just completed rep {current_reps}. "
+                    "Use get_coaching_progress and get_movement_quality_analysis to check their form. "
+                    "If quality is dropping, use detect_compensation_patterns to check for bad habits. "
+                    "Give specific, actionable feedback via speak_to_user (1-2 sentences max). "
+                    "Example: 'Your left knee is caving in — push it out over your pinky toe.'"
+                )
+            else:
+                # Periodic check
+                prompt = (
+                    "Periodic coaching check. Use get_coaching_progress to see current state. "
+                    "Only speak if there's something important to say. "
+                    "If everything looks fine, just respond 'MONITORING' without speaking."
+                )
+            
+            response = await agent.send_message(prompt)
+            
+            # Send agent's analysis to frontend via coaching WS
+            if response and "MONITORING" not in response and _coaching_ws_clients:
+                agent_msg = json.dumps({
+                    "type": "agent_feedback",
+                    "data": response[:200],  # Truncate for display
+                    "check": check_count,
+                })
+                for client in list(_coaching_ws_clients):
+                    try:
+                        await client.send_text(agent_msg)
+                    except Exception:
+                        pass
+            
+        except Exception as e:
+            print(f"[Agent] Coaching intelligence error: {e}")
+        
+        # Wait before next check
+        await asyncio.sleep(10)
+
+def _start_coaching_intelligence():
+    """Start the Claude coaching intelligence background task."""
+    global _coaching_intelligence_task
+    if agent is None:
+        return
+    if _coaching_intelligence_task and not _coaching_intelligence_task.done():
+        _coaching_intelligence_task.cancel()
+    _coaching_intelligence_task = asyncio.create_task(_run_coaching_intelligence())
+    print("[Agent] Coaching intelligence loop started")
+
+def _stop_coaching_intelligence():
+    """Stop the Claude coaching intelligence background task."""
+    global _coaching_intelligence_task
+    if _coaching_intelligence_task and not _coaching_intelligence_task.done():
+        _coaching_intelligence_task.cancel()
+        _coaching_intelligence_task = None
+        print("[Agent] Coaching intelligence loop stopped")
+
 # ── Direct pose detector for coaching (avoids engine async race condition) ──
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
@@ -286,12 +380,16 @@ async def coaching_start(req: CoachingStartRequest):
     _coaching_session = CoachingSession(skill_name=req.skill_name, reference=ref)
     _coaching_session.set_primary_angle(req.primary_angle or "left_knee")
 
+    # Start Claude Agent SDK coaching intelligence (if agent available)
+    _start_coaching_intelligence()
+
     return {
         "status": "session_started",
         "skill": req.skill_name,
         "reference_loaded": req.reference_name if ref else None,
         "primary_angle": req.primary_angle,
         "available_angles": list(KEY_ANGLES.keys()),
+        "agent_active": agent is not None,
     }
 
 
@@ -302,7 +400,27 @@ async def coaching_stop():
     if _coaching_session is None:
         return {"error": "No active coaching session"}
 
+    # Stop Claude coaching intelligence
+    _stop_coaching_intelligence()
+
     summary = _coaching_session.end()
+
+    # Have Claude generate a session summary (if agent available)
+    if agent:
+        try:
+            agent_summary = await agent.send_message(
+                f"Coaching session for '{summary.get('skill', 'unknown')}' just ended. "
+                f"Stats: {summary.get('total_reps', 0)} reps, "
+                f"avg score {summary.get('avg_score', 0):.0f}, "
+                f"best score {summary.get('best_score', 0):.0f}. "
+                "Use get_coaching_progress for full details. "
+                "Give a brief motivating session summary (2-3 sentences). "
+                "Then update the user's skill proficiency if possible."
+            )
+            summary["agent_summary"] = agent_summary
+        except Exception as e:
+            print(f"[Agent] Session summary error: {e}")
+
     _coaching_session = None
     return summary
 

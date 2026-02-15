@@ -319,6 +319,11 @@ function CoachContent() {
               });
             }
           }
+
+          // Claude Agent SDK feedback (strategic coaching)
+          if (msg.type === "agent_feedback" && msg.data) {
+            setCurrentFeedback(msg.data);
+          }
         } catch {
           // ignore malformed messages
         }
@@ -408,7 +413,7 @@ function CoachContent() {
         videoWs.send(JSON.stringify({ type: "frame", data: base64 }));
       };
 
-      const frameInterval = setInterval(sendFrame, 150); // ~7 FPS
+      const frameInterval = setInterval(sendFrame, 250); // ~4 FPS (enough for pose detection)
 
       videoWs.onerror = () => console.warn("[Kinetic] Video WS error");
       videoWs.onclose = () => { videoWsRef.current = null; };

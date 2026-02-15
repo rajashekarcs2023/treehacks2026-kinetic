@@ -60,6 +60,10 @@ from aegis.data_collector import DataCollector
 from aegis.hybrid_scorer import HybridScorer
 from aegis.memory import MemoryStore
 from aegis.rooms import RoomManager
+from aegis.ai_expert import (
+    list_canonical_exercises, get_ai_expert, generate_expert_sequence,
+    generate_expert_sequence_from_description, get_best_expert,
+)
 import re
 
 app = FastAPI(title="AEGIS — AI Skill Coach")
@@ -515,15 +519,30 @@ async def coaching_start(req: CoachingStartRequest):
     """Start a coaching session.
 
     Body: { skill_name, reference_name?, primary_angle? }
-    Returns: session status with loaded reference info.
+
+    If no reference_name provided, auto-generates an AI expert reference
+    using canonical templates, Claude generation, or DGX motion generation.
     """
     global _coaching_session
 
     ref = None
+    ref_source = None
+
     if req.reference_name:
         ref = _reference_store.load(req.reference_name)
         if ref is None:
             return {"error": f"Reference '{req.reference_name}' not found"}
+        ref_source = "recorded_video"
+    else:
+        # Auto-generate AI expert — no video needed!
+        ref = await get_best_expert(req.skill_name, dgx_client=dgx_client)
+        if ref:
+            ref_source = ref.metadata.get("source", "ai_generated") if ref.metadata else "ai_generated"
+
+        # Get primary angle from template if available
+        template = get_ai_expert(req.skill_name)
+        if template and not req.primary_angle:
+            req.primary_angle = template.get("primary_angle")
 
     _coaching_session = CoachingSession(skill_name=req.skill_name, reference=ref)
     _coaching_session.set_primary_angle(req.primary_angle or "left_knee")
@@ -534,10 +553,12 @@ async def coaching_start(req: CoachingStartRequest):
     return {
         "status": "session_started",
         "skill": req.skill_name,
-        "reference_loaded": req.reference_name if ref else None,
+        "reference_loaded": req.reference_name or (f"ai_expert_{req.skill_name}" if ref else None),
+        "reference_source": ref_source,
         "primary_angle": req.primary_angle,
         "available_angles": list(KEY_ANGLES.keys()),
         "agent_active": agent is not None,
+        "coaching_cues": (get_ai_expert(req.skill_name) or {}).get("coaching_cues", []),
     }
 
 
@@ -818,6 +839,51 @@ async def close_room(code: str):
 async def list_rooms():
     """List all active rooms."""
     return {"rooms": _room_manager.list_rooms()}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AI EXPERT APIs — Generate expert references without video
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/ai-expert/exercises")
+async def ai_expert_list():
+    """List all canonical exercises the AI can generate expert form for."""
+    return {"exercises": list_canonical_exercises()}
+
+
+@app.get("/api/ai-expert/{exercise}")
+async def ai_expert_get(exercise: str):
+    """Get AI expert template for an exercise (angles, phases, coaching cues)."""
+    template = get_ai_expert(exercise)
+    if template is None:
+        return {"error": f"No template for '{exercise}'", "available": [e["id"] for e in list_canonical_exercises()]}
+    return {"exercise": exercise, **template}
+
+
+class AIExpertGenerateRequest(BaseModel):
+    skill_description: str
+    use_dgx: bool = True
+
+
+@app.post("/api/ai-expert/generate")
+async def ai_expert_generate(req: AIExpertGenerateRequest):
+    """Generate expert reference for ANY skill using AI.
+
+    Priority: DGX motion generation → canonical template → Claude generation.
+    """
+    seq = await get_best_expert(
+        req.skill_description,
+        dgx_client=dgx_client if req.use_dgx else None,
+    )
+    if seq is None:
+        return {"error": f"Could not generate expert for '{req.skill_description}'"}
+    return {
+        "skill": req.skill_description,
+        "source": seq.metadata.get("source", "unknown") if seq.metadata else "unknown",
+        "frame_count": seq.frame_count,
+        "phases": seq.metadata.get("phases", []) if seq.metadata else [],
+        "coaching_cues": seq.metadata.get("coaching_cues", []) if seq.metadata else [],
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════

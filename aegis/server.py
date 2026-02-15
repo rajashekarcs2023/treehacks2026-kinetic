@@ -59,6 +59,7 @@ from aegis.data_collector import DataCollector
 from aegis.hybrid_scorer import HybridScorer
 from aegis.memory import MemoryStore
 from aegis.rooms import RoomManager
+import re
 
 app = FastAPI(title="AEGIS — AI Skill Coach")
 app.add_middleware(
@@ -181,24 +182,23 @@ async def _run_coaching_intelligence():
                         pass
                 prompt = (
                     f"[COACHING SESSION STARTED]\n{data_block}\n\n"
-                    "Use your coaching tools to analyze the user's starting position, then "
-                    "give a brief encouraging opening sentence to speak aloud. "
-                    "Keep your spoken output to 1 sentence max."
+                    "Output ONLY the exact sentence to say aloud — nothing else. "
+                    "Give a brief, warm opening like 'Alright, let's get started! Show me what you've got.'"
                 )
                 agent_action = "session_start"
             elif current_reps > 0 and current_reps % 10 == 0 and current_reps != _last_milestone_rep:
                 _last_milestone_rep = current_reps
                 prompt = (
                     f"[MILESTONE: {current_reps} REPS]\n{data_block}\n\n"
-                    "Celebrate this milestone! Ask if they want to keep going or take a break. "
-                    "1 sentence max."
+                    "Output ONLY the exact sentence to say aloud — nothing else. "
+                    f"Celebrate {current_reps} reps! Example: 'That's {current_reps}! Great set, want to keep going?'"
                 )
                 agent_action = "milestone"
             elif _consecutive_declining >= 3:
                 prompt = (
                     f"[SCORES DECLINING 3+ REPS]\n{data_block}\n\n"
-                    "Scores have been dropping. Be gentle and supportive. "
-                    "Suggest slowing down or taking a break. 1 sentence."
+                    "Output ONLY the exact sentence to say aloud — nothing else. "
+                    "Be gentle. Example: 'Hey, let's slow it down a bit. Take a breath.'"
                 )
                 agent_action = "fatigue_checkin"
                 _consecutive_declining = 0
@@ -206,17 +206,16 @@ async def _run_coaching_intelligence():
                 _last_agent_rep_count = current_reps
                 prompt = (
                     f"[REP {current_reps} COMPLETED]\n{data_block}\n\n"
-                    "Analyze the user's form using your coaching and perception tools. "
-                    "Check for compensation patterns if score is below 70. "
-                    "Then give specific, actionable feedback (1-2 sentences) to speak aloud."
+                    "Output ONLY the exact sentence to say aloud — nothing else. No analysis, no reasoning. "
+                    "Give specific body cue feedback. Example: 'Rep 5! Push your knees out more on the way down.'"
                 )
                 agent_action = "rep_feedback"
             else:
                 if trend == "declining":
                     prompt = (
                         f"[SCORES DECLINING]\n{data_block}\n\n"
-                        "Use your perception tools to check posture and alignment. "
-                        "Identify the issue and give a motivating correction (1 sentence) to speak aloud."
+                        "Output ONLY the exact sentence to say aloud — nothing else. "
+                        "Give a motivating correction. Example: 'Focus on your form — chest up, core tight.'"
                     )
                     agent_action = "correction"
                 else:
@@ -230,20 +229,35 @@ async def _run_coaching_intelligence():
             if response:
                 speech_text = response.strip()
                 # Remove reasoning prefixes Claude adds
-                for prefix in ["Here's", "Sure,", "Okay,", "I'll", "Let me", "Based on", "I can see", "Looking at", "After analyzing"]:
+                meta_prefixes = ["Here's", "Sure,", "Okay,", "I'll", "Let me", "Based on", 
+                                 "I can see", "Looking at", "After analyzing", "I see",
+                                 "I notice", "I want to", "I'm going", "I need"]
+                for prefix in meta_prefixes:
                     if speech_text.startswith(prefix) and ":" in speech_text[:80]:
                         speech_text = speech_text.split(":", 1)[1].strip()
-                # If still has reasoning (multiple sentences with meta-talk), take the last sentence
-                sentences = [s.strip() for s in speech_text.replace('!', '.').split('.') if s.strip()]
+                # Split into sentences (keep ! as sentence ender)
+                sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', speech_text) if s.strip()]
                 # Filter out meta-sentences (about tools, analysis, etc)
-                coaching_sentences = [s for s in sentences if not any(w in s.lower() for w in ['tool', 'analyze', 'technical', 'i\'ll', 'let me', 'i can', 'i will', 'experiencing'])]
+                meta_words = ['tool', 'analyze', 'technical', "i'll", 'let me', 'i can see',
+                              'i will', 'experiencing', 'i see there', 'i notice', 'i want to',
+                              'i\'m going', 'coaching tool', 'perception', 'starting position']
+                coaching_sentences = [s for s in sentences if not any(w in s.lower() for w in meta_words)]
                 if coaching_sentences:
-                    # Take last 1-2 coaching sentences
-                    speech_text = '. '.join(coaching_sentences[-2:]) + '.'
+                    speech_text = ' '.join(coaching_sentences[-2:])
+                elif sentences:
+                    # All sentences are meta — use a simple fallback
+                    if agent_action == "session_start":
+                        speech_text = "Alright, let's get started! Show me what you've got."
+                    elif agent_action == "rep_feedback":
+                        speech_text = f"That's rep {current_reps}! Keep it going."
+                    elif agent_action == "milestone":
+                        speech_text = f"Nice, {current_reps} reps done! Great work."
+                    else:
+                        speech_text = "Looking good, keep that form tight!"
                 # Remove quotes if wrapped
                 speech_text = speech_text.strip('"').strip("'")
-                # Limit length (generous — GPT-4o will speak it naturally)
-                speech_text = speech_text[:300]
+                # Limit length
+                speech_text = speech_text[:200]
                 
                 if speech_text and len(speech_text) > 5:
                     print(f"[Agent] Coach says: {speech_text}")

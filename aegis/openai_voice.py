@@ -239,8 +239,8 @@ class OpenAIVoiceBridge:
                     "response": {
                         "modalities": ["text", "audio"],
                         "conversation": "none",  # out-of-band: doesn't pollute conversation history
-                        "instructions": f"Say this exactly as a short coaching cue (under 15 words): {text}",
-                        "max_response_output_tokens": 40,
+                        "instructions": f"Say this exactly as a coaching cue. Keep it natural and short: {text}",
+                        "max_response_output_tokens": 80,
                     },
                 }))
                 return True

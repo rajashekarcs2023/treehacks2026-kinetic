@@ -85,6 +85,36 @@ _memory_store = MemoryStore()
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
+# ── Direct pose detector for coaching (avoids engine async race condition) ──
+import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
+
+_POSE_MODEL = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "pose_landmarker_lite.task")
+_pose_landmarker = None
+
+def _get_or_create_landmarker():
+    global _pose_landmarker
+    if _pose_landmarker is None and os.path.exists(_POSE_MODEL):
+        base_options = mp_python.BaseOptions(model_asset_path=_POSE_MODEL)
+        options = mp_vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            running_mode=mp_vision.RunningMode.IMAGE,
+        )
+        _pose_landmarker = mp_vision.PoseLandmarker.create_from_options(options)
+    return _pose_landmarker
+
+def _detect_pose_direct(frame_rgb: np.ndarray):
+    """Run pose detection directly on a frame. Returns list of (x,y,vis) or None."""
+    landmarker = _get_or_create_landmarker()
+    if landmarker is None:
+        return None
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+    result = landmarker.detect(mp_image)
+    if result.pose_landmarks and len(result.pose_landmarks) > 0:
+        return [(lm.x, lm.y, lm.visibility) for lm in result.pose_landmarks[0]]
+    return None
+
 
 # ── Pydantic request/response models ─────────────────────────────────
 
@@ -862,12 +892,14 @@ async def ws_video(websocket: WebSocket):
                 np_arr = np.frombuffer(jpg_bytes, dtype=np.uint8)
                 frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-                if frame is not None and engine is not None:
-                    engine.push_frame(frame)
+                if frame is not None:
+                    if engine is not None:
+                        engine.push_frame(frame)
                     frame_count += 1
 
-                    # Feed pose into active recording/coaching sessions
-                    pose_points = _get_current_pose_points()
+                    # Run pose detection directly on this frame (sync, no race condition)
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    pose_points = _detect_pose_direct(rgb)
                     if pose_points:
                         if _recording_session and _recording_session.active:
                             _recording_session.add_frame(pose_points)

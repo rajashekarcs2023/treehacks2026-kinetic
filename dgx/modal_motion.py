@@ -27,12 +27,28 @@ def download_hymotion():
     subprocess.run(["mkdir", "-p", ckpt_dir], check=True)
 
     from huggingface_hub import snapshot_download
+
+    # Download HY-Motion 1.0-Lite model weights
     snapshot_download(
         repo_id="tencent/HY-Motion-1.0",
         local_dir="/hymotion/ckpts/tencent",
         allow_patterns=["HY-Motion-1.0-Lite/**"],
     )
-    print("[AEGIS] HY-Motion 1.0-Lite weights downloaded to /hymotion/ckpts/tencent/")
+    print("[KINETIC] HY-Motion 1.0-Lite weights downloaded to /hymotion/ckpts/tencent/")
+
+    # Download CLIP text encoder (required by HY-Motion for text encoding)
+    snapshot_download(
+        repo_id="openai/clip-vit-large-patch14",
+        local_dir="/hymotion/ckpts/clip-vit-large-patch14",
+    )
+    print("[KINETIC] CLIP text encoder downloaded")
+
+    # Download Qwen3-8B LLM text encoder (required by HY-Motion config: llm_type=qwen3)
+    snapshot_download(
+        repo_id="Qwen/Qwen3-8B",
+        local_dir="/hymotion/ckpts/Qwen3-8B",
+    )
+    print("[KINETIC] Qwen3-8B text encoder downloaded")
 
     # Verify
     import os
@@ -51,11 +67,13 @@ hymotion_image = (
     # Clone repo first
     .run_commands(
         "git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /hymotion",
+        "cd /hymotion && git lfs install && git lfs pull",
     )
     # Install exact deps from HY-Motion requirements.txt
     .pip_install(
         "torch==2.5.1", "torchvision==0.20.1",
     )
+    .pip_install("fastapi[standard]")
     .pip_install(
         "huggingface_hub==0.30.0",
         "torchdiffeq==0.2.5",
@@ -72,6 +90,7 @@ hymotion_image = (
         "omegaconf==2.3.0",
         "click==8.1.3",
         "requests==2.32.4",
+        "openai>=1.0.0",
     )
     # fbxsdkpy is optional (only for FBX export), skip if it fails
     .run_commands(
@@ -144,6 +163,7 @@ def _get_runtime():
 
     import sys
     sys.path.insert(0, "/hymotion")
+    os.chdir("/hymotion")  # T2MRuntime uses relative paths for body model assets
 
     from hymotion.utils.t2m_runtime import T2MRuntime
 
@@ -265,13 +285,10 @@ def generate(prompt: str, num_frames: int = 60):
     }
 
 
-# ── Web endpoint (POST) ─────────────────────────────────────
+# ── Web endpoint (POST) — no GPU needed, proxies to generate() ──
 @app.function(
     image=hymotion_image,
-    gpu="A100",
     timeout=180,
-    volumes={"/root/.cache/huggingface": hf_cache_vol},
-    secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 @modal.fastapi_endpoint(method="POST")
 def generate_endpoint(item: dict):

@@ -1330,7 +1330,8 @@ def compare_to_reference(reference_name: str) -> dict:
             best_dist = d
             best_idx = i
 
-    result = compare_poses(user_skel.joint_angles, ref.skeletons[best_idx].joint_angles)
+    result = compare_poses(user_skel.joint_angles, ref.skeletons[best_idx].joint_angles,
+                           user_skeleton=user_skel, expert_skeleton=ref.skeletons[best_idx])
     return {
         **result.to_dict(),
         "reference": reference_name,

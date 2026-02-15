@@ -356,6 +356,101 @@ def normalize_skeleton(points: list) -> NormalizedSkeleton:
 # SIMILARITY SCORING
 # ═══════════════════════════════════════════════════════════════════════
 
+# COCO per-keypoint standard deviations (empirically tuned on 5K annotated images)
+# Maps MediaPipe 33-point indices to COCO sigmas where applicable
+# Higher sigma = more tolerance (body joints), lower = less tolerance (face)
+COCO_SIGMAS_17 = np.array([
+    0.026,  # nose
+    0.025,  # left_eye
+    0.025,  # right_eye
+    0.035,  # left_ear
+    0.035,  # right_ear
+    0.079,  # left_shoulder
+    0.079,  # right_shoulder
+    0.072,  # left_elbow
+    0.072,  # right_elbow
+    0.062,  # left_wrist
+    0.062,  # right_wrist
+    0.107,  # left_hip
+    0.107,  # right_hip
+    0.087,  # left_knee
+    0.087,  # right_knee
+    0.089,  # left_ankle
+    0.089,  # right_ankle
+])
+
+# Map MediaPipe 33 indices → COCO 17 indices for OKS computation
+MP_TO_COCO = {
+    0: 0,    # nose
+    2: 1,    # left_eye
+    5: 2,    # right_eye
+    7: 3,    # left_ear
+    8: 4,    # right_ear
+    11: 5,   # left_shoulder
+    12: 6,   # right_shoulder
+    13: 7,   # left_elbow
+    14: 8,   # right_elbow
+    15: 9,   # left_wrist
+    16: 10,  # right_wrist
+    23: 11,  # left_hip
+    24: 12,  # right_hip
+    25: 13,  # left_knee
+    26: 14,  # right_knee
+    27: 15,  # left_ankle
+    28: 16,  # right_ankle
+}
+
+
+def compute_oks(user_points: list, expert_points: list,
+                bbox_area: float = None) -> float:
+    """Compute COCO Object Keypoint Similarity (OKS) between two poses.
+
+    OKS is the gold standard metric for pose comparison, used by COCO benchmark.
+    It accounts for:
+    - Per-keypoint tolerance (face joints are stricter than body joints)
+    - Object scale (larger person = more tolerance)
+    - Visibility weighting
+
+    Returns: float 0-1 (1 = perfect match)
+    """
+    if len(user_points) < 33 or len(expert_points) < 33:
+        return 0.5
+
+    # Estimate scale from expert skeleton bounding box if not provided
+    if bbox_area is None:
+        visible_pts = [(p[0], p[1]) for p in expert_points if p[2] > 0.3]
+        if len(visible_pts) >= 2:
+            xs = [p[0] for p in visible_pts]
+            ys = [p[1] for p in visible_pts]
+            bbox_area = (max(xs) - min(xs)) * (max(ys) - min(ys)) * 0.53  # COCO heuristic
+        else:
+            bbox_area = 1.0
+
+    oks_sum = 0.0
+    count = 0
+
+    for mp_idx, coco_idx in MP_TO_COCO.items():
+        u_x, u_y, u_v = user_points[mp_idx]
+        e_x, e_y, e_v = expert_points[mp_idx]
+
+        if e_v < 0.3:  # expert keypoint not visible — skip
+            continue
+
+        # Euclidean distance squared
+        d_sq = (u_x - e_x) ** 2 + (u_y - e_y) ** 2
+
+        # OKS per-keypoint: exp(-d² / (2 * s² * k²))
+        sigma = COCO_SIGMAS_17[coco_idx]
+        k_sq = (2 * sigma) ** 2
+        denom = 2 * k_sq * (bbox_area + 1e-8)
+
+        ks = math.exp(-d_sq / denom)
+        oks_sum += ks
+        count += 1
+
+    return oks_sum / max(count, 1)
+
+
 def _gaussian_score(deviation: float, sigma: float = 20.0) -> float:
     """Gaussian-weighted scoring: small deviations are penalized more proportionally.
     sigma=20 means 20° deviation ≈ 60% score, 10° ≈ 88%, 30° ≈ 32%, 45°+ ≈ ~0%.
@@ -389,12 +484,15 @@ def compare_poses(user_angles: dict[str, float],
                   expert_angles: dict[str, float],
                   weights: dict[str, float] = None,
                   user_skeleton: Optional['NormalizedSkeleton'] = None,
-                  expert_skeleton: Optional['NormalizedSkeleton'] = None) -> ComparisonResult:
-    """Compare user's pose to expert's using hybrid scoring.
+                  expert_skeleton: Optional['NormalizedSkeleton'] = None,
+                  user_raw_points: list = None,
+                  expert_raw_points: list = None) -> ComparisonResult:
+    """Compare user's pose to expert's using tri-dimensional hybrid scoring.
 
     Scoring dimensions:
-    1. Gaussian-weighted angle deviation (70% of score) — precise joint matching
-    2. Cosine similarity of normalized points (30% of score) — spatial positioning
+    1. Gaussian-weighted angle deviation (50%) — precise joint matching
+    2. Cosine similarity of normalized points (20%) — spatial positioning
+    3. COCO OKS (30%) — gold standard per-keypoint similarity with scale normalization
 
     Returns ComparisonResult with overall score and per-joint deviations.
     """
@@ -414,7 +512,7 @@ def compare_poses(user_angles: dict[str, float],
             best_joints=[],
         )
 
-    # Dimension 1: Gaussian-weighted angle score (70%)
+    # Dimension 1: Gaussian-weighted angle score (50%)
     total_weight = 0.0
     weighted_score = 0.0
     for joint, dev in deviations.items():
@@ -425,14 +523,20 @@ def compare_poses(user_angles: dict[str, float],
 
     angle_score = 100.0 * weighted_score / max(total_weight, 1e-8)
 
-    # Dimension 2: Cosine similarity of normalized skeleton (30%)
-    spatial_score = 50.0  # neutral default if no skeletons provided
+    # Dimension 2: Cosine similarity of normalized skeleton (20%)
+    spatial_score = 50.0  # neutral default
     if user_skeleton and expert_skeleton:
         cos_sim = _cosine_similarity_points(user_skeleton.points, expert_skeleton.points)
         spatial_score = 100.0 * cos_sim
 
-    # Hybrid: 70% angles, 30% spatial
-    overall = 0.7 * angle_score + 0.3 * spatial_score
+    # Dimension 3: COCO OKS — gold standard (30%)
+    oks_score = 50.0  # neutral default
+    if user_raw_points and expert_raw_points:
+        oks = compute_oks(user_raw_points, expert_raw_points)
+        oks_score = 100.0 * oks
+
+    # Tri-dimensional hybrid: 50% angles + 20% spatial + 30% OKS
+    overall = 0.50 * angle_score + 0.20 * spatial_score + 0.30 * oks_score
 
     # Sort joints by deviation
     sorted_joints = sorted(deviations.items(), key=lambda x: -x[1])
@@ -1124,4 +1228,5 @@ def quick_compare(user_points: list, expert_points: list,
     return compare_poses(
         user_skel.joint_angles, expert_skel.joint_angles, weights,
         user_skeleton=user_skel, expert_skeleton=expert_skel,
+        user_raw_points=user_points, expert_raw_points=expert_points,
     )

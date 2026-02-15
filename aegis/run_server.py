@@ -16,6 +16,7 @@ from aegis import config
 from aegis.spatial_engine import SpatialEngine
 from aegis.sdk_agent import AegisSDKAgent
 from aegis.gemini_bridge import GeminiBridge
+from aegis.openai_voice import OpenAIVoiceBridge
 from aegis.dgx_client import DGXClient
 import aegis.server as server_module
 from aegis.server import app
@@ -47,7 +48,8 @@ def main():
     print(f"  Server:     http://{args.host}:{args.port}")
     print(f"  Dashboard:  http://{args.host}:{args.port}/dashboard")
     print(f"  Agent:      {'✗ disabled' if args.no_agent else '✓ Claude Agent SDK (3 sub-agents)'}")
-    print(f"  Voice:      {'✓ Gemini Live (' + config.GEMINI_VOICE + ')' if config.GEMINI_API_KEY else '✗ no GEMINI_API_KEY'}")
+    has_openai = bool(config.OPENAI_API_KEY)
+    print(f"  Voice:      {'✓ OpenAI Realtime (GPT-4o)' if has_openai else '✓ Gemini Live (' + config.GEMINI_VOICE + ')' if config.GEMINI_API_KEY else '✗ no voice API key'}")
     dgx_url = args.dgx or os.environ.get("DGX_URL", "")
     print(f"  DGX:        {'✓ ' + dgx_url if dgx_url else '✗ disabled (use --dgx URL)'}")
     print(f"  MCP:        ✓ aegis (45 tools via SDK MCP server)")
@@ -73,16 +75,23 @@ def main():
     else:
         print("[Agent] No ANTHROPIC_API_KEY — agent disabled")
 
-    # Initialize Gemini Live voice bridge
-    bridge = None
-    if config.GEMINI_API_KEY:
+    # Initialize voice bridge (OpenAI Realtime preferred, Gemini fallback)
+    if config.OPENAI_API_KEY:
+        openai_bridge = OpenAIVoiceBridge(api_key=config.OPENAI_API_KEY)
+        server_module.openai_voice = openai_bridge
+        server_module.gemini_bridge = None  # Disable Gemini when OpenAI available
+        print(f"[Voice] OpenAI Realtime bridge ready (GPT-4o, alloy voice)")
+    elif config.GEMINI_API_KEY:
         bridge = GeminiBridge()
         if agent:
             bridge.update_goal(agent.goal_name, agent.active_goal.system_supplement)
         server_module.gemini_bridge = bridge
+        server_module.openai_voice = None
         print(f"[Voice] Gemini Live bridge ready ({config.GEMINI_VOICE})")
     else:
-        print("[Voice] No GEMINI_API_KEY — voice disabled")
+        server_module.openai_voice = None
+        server_module.gemini_bridge = None
+        print("[Voice] No voice API key — voice disabled")
 
     # Initialize DGX Spark client (RTMPose-WholeBody on GPU)
     dgx_client = None

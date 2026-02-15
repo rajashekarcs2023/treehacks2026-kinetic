@@ -25,50 +25,26 @@ OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-pr
 
 
 def _build_coaching_instructions(skill: str = "", session_history: str = "", coaching_data: str = "") -> str:
-    base = """You are AEGIS, an AI physical skill coach. You are currently in a live coaching session, watching the user through their camera and helping them practice a physical skill.
+    base = """You are AEGIS, a real-time physical skill coach. You speak like a human personal trainer — warm, punchy, natural.
 
-## Your Role
-- You are a warm, encouraging personal coach speaking to the user in real-time
-- You speak naturally — short, punchy cues during movement, longer explanations during rest
-- Keep ALL responses to 1-2 sentences max unless the user asks a question
+STYLE: Talk like a friend coaching you at the gym. Use short phrases. Sound human.
+- Good: "Nice! Push those knees out more."
+- Good: "That's 5! You're getting stronger."
+- Good: "Whoa, slow down — let's fix that hip."
+- Bad: "I can see that your form has improved significantly compared to your earlier repetitions."
 
-## How to Coach
-- Count reps aloud: "That's 3! Nice one."
-- Give specific body cues: "Push through your heels" not "Do better"
-- Celebrate milestones: "Your best rep yet! Score of 92!"
-- If they ask a question, answer it fully
-- If they say "slower" or "faster" or "harder" — adapt
-- Track improvement: "Your hip rotation is way better than rep 3"
-- If they seem tired: "Two more reps, you've got this"
-
-## Emotional Tone Adaptation
-- If scores are DROPPING (3+ reps declining): Switch to gentler, supportive tone.
-  Say things like "Let's slow down and focus on form" or "Take a breath, no rush"
-- If scores are IMPROVING: Match their energy! "You're on fire! That was your best one!"
-- If score hits a new BEST: Big celebration — "YES! New personal best! 94 out of 100!"
-- If they sound FRUSTRATED: Be empathetic — "I know it's tough. Let's break it down step by step"
-- If they sound EXCITED: Be excited with them — mirror their energy
-
-## Multi-Language Support
-- If the user speaks in a different language, RESPOND IN THAT LANGUAGE
-- If they say "coach me in Spanish" → switch to Spanish coaching
-- Maintain the same coaching quality in any language
-
-## Skill-Specific Coaching
-- Physical Therapy: Be gentle, focus on safety, emphasize range of motion
-- Yoga: Be calm, breathing cues, "inhale as you extend"
-- Sign Language: Guide hand shapes precisely, "curl your ring finger more"
-- Dance: Be energetic, count beats, "and 5, 6, 7, 8!"
-- Fitness: Be motivating, "one more! push through!"
-
-## Key Rules
-- NEVER give medical advice — say "check with your doctor"
-- If dangerous form → STOP them: "Hold on, let's fix your back position"
-- Keep responses to 1-2 sentences during active movement
-- Always be encouraging — never make them feel bad
-- You can hear them talk — respond to their questions naturally
-- If camera coverage is poor, guide them to reposition
-- Do NOT repeat yourself or echo coaching data back verbatim"""
+RULES:
+- MAX 1-2 short sentences. Under 20 words ideal.
+- Use natural fillers: "okay", "alright", "nice", "there you go"
+- Count reps: "That's 3!" / "Rep 7, nice form."
+- Give body-specific cues: "knees out", "chest up", "squeeze at the top"
+- Celebrate wins: "Yes! New best!" / "92 out of 100, that's fire!"
+- If score drops 3+ reps: gentle — "Take a breath. Let's slow it down."
+- If user asks a question, answer naturally and fully
+- If user speaks another language, switch to that language
+- NEVER give medical advice
+- NEVER repeat yourself or read data aloud
+- If you can't see their full body, say 'Step back a bit, I can't see your legs'"""
 
     extras = []
     if skill:
@@ -111,6 +87,11 @@ class OpenAIVoiceBridge:
         self._current_skill = ""
         self._session_history = ""
         self._latest_coaching_data = ""
+
+        # Interruption tracking (for conversation.item.truncate)
+        self._current_response_id = None
+        self._current_item_id = None
+        self._audio_chunks_played = 0  # count of audio chunks sent to client
 
     @property
     def is_connected(self) -> bool:
@@ -161,12 +142,12 @@ class OpenAIVoiceBridge:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.7,
+                    "threshold": 0.6,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 800,
+                    "silence_duration_ms": 500,
                 },
-                "temperature": 0.7,
-                "max_response_output_tokens": 100,
+                "temperature": 0.6,
+                "max_response_output_tokens": 60,
             },
         }
         await self._ws.send(json.dumps(session_config))
@@ -257,11 +238,9 @@ class OpenAIVoiceBridge:
                     "type": "response.create",
                     "response": {
                         "modalities": ["text", "audio"],
-                        "instructions": (
-                            f"Say this coaching cue to the user warmly and naturally. "
-                            f"Do NOT add extra commentary or questions. Just deliver this cue concisely:\n\n"
-                            f"{text}"
-                        ),
+                        "conversation": "none",  # out-of-band: doesn't pollute conversation history
+                        "instructions": f"Say this exactly as a short coaching cue (under 15 words): {text}",
+                        "max_response_output_tokens": 40,
                     },
                 }))
                 return True
@@ -307,10 +286,10 @@ class OpenAIVoiceBridge:
                         audio_b64 = event.get("delta", "")
                         if audio_b64:
                             audio_bytes = base64.b64decode(audio_b64)
+                            self._audio_chunks_played += 1
                             try:
                                 self._audio_out_queue.put_nowait(audio_bytes)
                             except asyncio.QueueFull:
-                                # Drop oldest chunk to make room
                                 try:
                                     self._audio_out_queue.get_nowait()
                                 except asyncio.QueueEmpty:
@@ -349,6 +328,20 @@ class OpenAIVoiceBridge:
                             except Exception:
                                 pass
                             self._response_in_progress = False
+                        # Truncate conversation to what user actually heard (WebSocket requirement)
+                        if self._current_item_id:
+                            audio_ms = int(self._audio_chunks_played * 60)  # ~60ms per chunk at 24kHz
+                            try:
+                                await self._ws.send(json.dumps({
+                                    "type": "conversation.item.truncate",
+                                    "item_id": self._current_item_id,
+                                    "content_index": 0,
+                                    "audio_end_ms": audio_ms,
+                                }))
+                            except Exception:
+                                pass
+                            self._current_item_id = None
+                        self._audio_chunks_played = 0
                         self._flush_audio_queue()
 
                     elif event_type == "input_audio_buffer.speech_stopped":
@@ -360,11 +353,20 @@ class OpenAIVoiceBridge:
                         if transcript:
                             print(f"[OpenAI Voice] User said: {transcript}")
 
+                    # Track response items for truncation
+                    elif event_type == "response.output_item.added":
+                        item = event.get("item", {})
+                        if item.get("type") == "message" and item.get("role") == "assistant":
+                            self._current_item_id = item.get("id")
+                            self._audio_chunks_played = 0
+
                     # Response lifecycle
                     elif event_type == "response.created":
                         self._response_in_progress = True
+                        self._current_response_id = event.get("response", {}).get("id")
                     elif event_type == "response.done":
                         self._response_in_progress = False
+                        self._current_response_id = None
 
                 except json.JSONDecodeError:
                     pass

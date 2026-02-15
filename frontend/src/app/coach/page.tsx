@@ -32,6 +32,8 @@ import {
   MessageSquareText,
   MonitorPlay,
   ChevronRight,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 interface JointFeedback {
@@ -72,6 +74,7 @@ function CoachContent() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
+  const [expertMuted, setExpertMuted] = useState(true);
   const [isCoaching, setIsCoaching] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState(initialSkill);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
@@ -908,13 +911,16 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
           {/* Expert video — 40% left (only when YouTube) */}
           {youtubeVideoId && (
             <div className="w-[40%] flex flex-col bg-black relative border-r border-white/10">
-              <div className="absolute top-3 left-3 z-10">
+              <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between">
                 <Badge variant="outline" className="border-red-500/40 text-red-400 bg-black/60 backdrop-blur-sm">
                   <Youtube className="h-3 w-3 mr-1" /> Expert
                 </Badge>
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full bg-black/60 text-white/70 hover:text-white hover:bg-black/80" onClick={() => setExpertMuted(!expertMuted)}>
+                  {expertMuted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+                </Button>
               </div>
               <iframe
-                src={`https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&loop=1`}
+                src={`https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&loop=1&mute=${expertMuted ? 1 : 0}`}
                 className="w-full h-full"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen

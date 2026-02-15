@@ -13,9 +13,6 @@ import {
   Clock,
   ChevronRight,
   Brain,
-  Mic,
-  Upload,
-  FileText,
   Sparkles,
   Dumbbell,
   Music,
@@ -147,52 +144,23 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* 3 Input Paths — the key product differentiator */}
-      <Card className="bg-gradient-to-r from-primary/5 via-card to-purple-500/5 border-primary/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Start Learning Any Skill</CardTitle>
-          <p className="text-xs text-muted-foreground">Three ways to begin — no training data needed</p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid sm:grid-cols-3 gap-3">
-            <Link href="/coach?mode=video">
-              <div className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-border bg-secondary/20 hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                  <Upload className="h-5 w-5 text-primary" />
-                </div>
-                <p className="text-sm font-medium">Expert Video</p>
-                <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-                  Upload a video or record live — AI extracts the skeleton and teaches you to match it
-                </p>
-              </div>
-            </Link>
-
-            <Link href="/coach?mode=voice">
-              <div className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-border bg-secondary/20 hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                  <Mic className="h-5 w-5 text-primary" />
-                </div>
-                <p className="text-sm font-medium">Just Describe It</p>
-                <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-                  Say &ldquo;Coach my tennis serve&rdquo; — AI reasons about biomechanics, no video needed
-                </p>
-              </div>
-            </Link>
-
-            <Link href="/coach?mode=document">
-              <div className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-border bg-secondary/20 hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                  <FileText className="h-5 w-5 text-primary" />
-                </div>
-                <p className="text-sm font-medium">From a Document</p>
-                <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-                  Upload a PT protocol, yoga manual, or coaching guide — instant live coaching
-                </p>
-              </div>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+      {/* New Session Hero CTA */}
+      <Link href="/coach">
+        <Card className="group bg-gradient-to-r from-primary/5 via-card to-purple-500/5 border-primary/20 hover:border-primary/40 transition-all cursor-pointer">
+          <CardContent className="p-6 flex items-center gap-5">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/15 group-hover:bg-primary/20 transition-colors">
+              <Video className="h-7 w-7 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="text-lg font-semibold">Start a New Session</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Learn from an expert video, describe a skill, or upload a guide — AI coaches your form live
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+          </CardContent>
+        </Card>
+      </Link>
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left column */}

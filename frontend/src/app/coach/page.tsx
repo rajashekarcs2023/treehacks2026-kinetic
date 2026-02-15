@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScoreRing } from "@/components/score-ring";
-import { createCoachingWS, createVideoWS, createAudioWS, startCoaching, stopCoaching, ingestYouTube } from "@/lib/api";
+import { createCoachingWS, createVideoWS, createAudioWS, startCoaching, stopCoaching, ingestYouTube, createRoom, joinRoom, getRoomLeaderboard } from "@/lib/api";
 import {
   Video,
   VideoOff,
@@ -34,6 +34,10 @@ import {
   ChevronRight,
   Volume2,
   VolumeX,
+  Users,
+  Trophy,
+  Copy,
+  Check,
 } from "lucide-react";
 
 interface JointFeedback {
@@ -83,7 +87,15 @@ function CoachContent() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Input mode state — pre-select from ?mode= query param
-  const [inputMode, setInputMode] = useState<"none" | "video" | "describe" | "document">(initialMode || "none");
+  const [inputMode, setInputMode] = useState<"none" | "video" | "describe" | "document" | "practice">(initialMode || "none");
+
+  // Practice with Friend state
+  const [roomCode, setRoomCode] = useState<string | null>(null);
+  const [joinCode, setJoinCode] = useState("");
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
+  const [friendData, setFriendData] = useState<{ display_name: string; avg_score: number; reps_completed: number; best_score: number; trend: string } | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [videoSubMode, setVideoSubMode] = useState<"none" | "url" | "upload">(initialMode === "video" ? "url" : "none");
 
   // YouTube / video state
@@ -143,6 +155,34 @@ function CoachContent() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadedFileName(file.name);
+  };
+
+  // ── Practice with Friend handlers ──
+  const handleCreateRoom = async () => {
+    try {
+      const result = await createRoom(selectedSkill, displayName || "Player 1");
+      setRoomCode(result.room_code);
+      setMyUserId(result.user_id);
+    } catch (e) { console.error("Failed to create room:", e); }
+  };
+
+  const handleJoinRoom = async () => {
+    if (!joinCode.trim()) return;
+    try {
+      const result = await joinRoom(joinCode.trim().toUpperCase(), displayName || "Player 2");
+      if ("error" in result) { alert("Room not found"); return; }
+      setRoomCode(result.room_code);
+      setMyUserId(result.user_id);
+      setSelectedSkill(result.skill);
+    } catch (e) { console.error("Failed to join room:", e); }
+  };
+
+  const handleCopyCode = () => {
+    if (roomCode) {
+      navigator.clipboard.writeText(roomCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
   };
 
   // Coaching state
@@ -575,6 +615,22 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
     return () => clearInterval(interval);
   }, [isCoaching, micActive, currentScore, repCount, phase, avgScore, bestScore, currentFeedback]);
 
+  // Poll room leaderboard for friend's data in practice mode
+  useEffect(() => {
+    if (!isCoaching || !roomCode || inputMode !== "practice") return;
+    const poll = async () => {
+      try {
+        const data = await getRoomLeaderboard(roomCode);
+        const leaderboard = data.leaderboard as Array<{ user_id: string; display_name: string; avg_score: number; reps_completed: number; best_score: number; trend: string }>;
+        const friend = leaderboard.find((p) => p.user_id !== myUserId);
+        if (friend) setFriendData(friend);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [isCoaching, roomCode, myUserId, inputMode]);
+
   // Camera setup
   const startCamera = useCallback(async () => {
     try {
@@ -687,8 +743,8 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
                 <span className="text-xs text-muted-foreground">(optional)</span>
               </div>
 
-              {/* Three mode cards */}
-              <div className="grid grid-cols-3 gap-3">
+              {/* Four mode cards */}
+              <div className="grid grid-cols-4 gap-3">
                 {/* Expert Video Card */}
                 <button
                   className={`relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all text-center ${
@@ -701,7 +757,7 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
                   {inputMode === "video" && <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-[9px] px-1.5">Selected</Badge>}
                   <MonitorPlay className="h-7 w-7 text-red-500" />
                   <span className="text-sm font-semibold">Expert Video</span>
-                  <span className="text-[11px] text-muted-foreground leading-tight">Upload a video or paste a YouTube URL</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">YouTube URL or upload</span>
                 </button>
 
                 {/* Just Describe It Card */}
@@ -715,8 +771,8 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
                 >
                   {inputMode === "describe" && <Badge className="absolute -top-2 -right-2 bg-primary text-white text-[9px] px-1.5">Selected</Badge>}
                   <MessageSquareText className="h-7 w-7 text-primary" />
-                  <span className="text-sm font-semibold">Just Describe It</span>
-                  <span className="text-[11px] text-muted-foreground leading-tight">Tell us what to coach — AI figures out the rest</span>
+                  <span className="text-sm font-semibold">Describe It</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">AI coaches from your description</span>
                 </button>
 
                 {/* From a Document Card */}
@@ -730,8 +786,23 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
                 >
                   {inputMode === "document" && <Badge className="absolute -top-2 -right-2 bg-amber-500 text-white text-[9px] px-1.5">Selected</Badge>}
                   <FileText className="h-7 w-7 text-amber-500" />
-                  <span className="text-sm font-semibold">From a Document</span>
-                  <span className="text-[11px] text-muted-foreground leading-tight">Upload a PDF, image, or guide with instructions</span>
+                  <span className="text-sm font-semibold">Document</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">PDF or guide with instructions</span>
+                </button>
+
+                {/* Practice with Friend Card */}
+                <button
+                  className={`relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all text-center ${
+                    inputMode === "practice"
+                      ? "border-green-500/60 bg-green-500/5 shadow-lg shadow-green-500/10"
+                      : "border-border hover:border-green-500/30 hover:bg-green-500/5"
+                  }`}
+                  onClick={() => setInputMode(inputMode === "practice" ? "none" : "practice")}
+                >
+                  {inputMode === "practice" && <Badge className="absolute -top-2 -right-2 bg-green-500 text-white text-[9px] px-1.5">Selected</Badge>}
+                  <Users className="h-7 w-7 text-green-500" />
+                  <span className="text-sm font-semibold">With a Friend</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">Practice together, live scores</span>
                 </button>
               </div>
 
@@ -887,6 +958,65 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
                   )}
                 </div>
               )}
+
+              {/* ── Expanded: Practice with Friend ── */}
+              {inputMode === "practice" && (
+                <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <p className="text-sm text-muted-foreground">Practice together with a friend. Both get live scores from AI — see who nails the form!</p>
+
+                  {/* Name input */}
+                  <input
+                    className="w-full px-4 py-2.5 rounded-lg bg-background border border-border text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-green-500/40"
+                    placeholder="Your display name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                  />
+
+                  {!roomCode ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Create Room */}
+                      <button
+                        className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-green-500/30 hover:border-green-500/60 hover:bg-green-500/5 transition-all"
+                        onClick={handleCreateRoom}
+                      >
+                        <Users className="h-6 w-6 text-green-500" />
+                        <span className="text-sm font-semibold">Create Room</span>
+                        <span className="text-[10px] text-muted-foreground">Get a code to share</span>
+                      </button>
+
+                      {/* Join Room */}
+                      <div className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-dashed border-green-500/30">
+                        <Trophy className="h-6 w-6 text-green-500" />
+                        <span className="text-sm font-semibold">Join Room</span>
+                        <div className="flex gap-2 w-full">
+                          <input
+                            className="flex-1 px-3 py-1.5 rounded-lg bg-background border border-border text-sm text-center uppercase tracking-widest placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-green-500/40"
+                            placeholder="CODE"
+                            maxLength={6}
+                            value={joinCode}
+                            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
+                          />
+                          <Button size="sm" variant="outline" className="border-green-500/40 text-green-500" onClick={handleJoinRoom}>Join</Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Room created/joined — show code */
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+                      <Users className="h-5 w-5 text-green-500" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold">Room: <span className="font-mono tracking-widest text-green-400">{roomCode}</span></p>
+                        <p className="text-[11px] text-muted-foreground">Share this code with your friend</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="gap-1 text-green-500" onClick={handleCopyCode}>
+                        {copiedCode ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        {copiedCode ? "Copied!" : "Copy"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── Step 3: Start ── */}
@@ -897,7 +1027,7 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
                 onClick={toggleCoaching}
               >
                 <Play className="h-6 w-6" />
-                Start Coaching: {selectedSkill}
+                {inputMode === "practice" ? `Practice Together: ${selectedSkill}` : `Start Coaching: ${selectedSkill}`}
               </Button>
               <p className="text-xs text-muted-foreground">
                 {referenceName
@@ -916,8 +1046,61 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
       {/* ══════ COACHING MODE ══════ */}
       {coachMode === "coaching" && (
         <>
-          {/* Expert video — 40% left (only when YouTube) */}
-          {youtubeVideoId && (
+          {/* ── Friend panel — Practice with Friend mode ── */}
+          {inputMode === "practice" && (
+            <div className="w-[40%] flex flex-col bg-black relative border-r border-white/10">
+              <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between">
+                <Badge variant="outline" className="border-green-500/40 text-green-400 bg-black/60 backdrop-blur-sm">
+                  <Users className="h-3 w-3 mr-1" /> {friendData?.display_name || "Waiting for friend..."}
+                </Badge>
+                {roomCode && (
+                  <Badge variant="outline" className="border-white/20 text-white/60 bg-black/60 backdrop-blur-sm font-mono tracking-widest">
+                    {roomCode}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+                {friendData ? (
+                  <>
+                    <ScoreRing score={Math.round(friendData.avg_score)} size={180} strokeWidth={12} label={friendData.display_name} />
+                    <div className="grid grid-cols-3 gap-6 text-center">
+                      <div>
+                        <p className="text-3xl font-bold tabular-nums text-white">{friendData.reps_completed}</p>
+                        <p className="text-xs text-white/50">Reps</p>
+                      </div>
+                      <div>
+                        <p className="text-3xl font-bold tabular-nums text-white">{Math.round(friendData.avg_score)}</p>
+                        <p className="text-xs text-white/50">Avg Score</p>
+                      </div>
+                      <div>
+                        <p className="text-3xl font-bold tabular-nums text-white">{Math.round(friendData.best_score)}</p>
+                        <p className="text-xs text-white/50">Best</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {friendData.avg_score > avgScore ? (
+                        <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Friend is ahead!</Badge>
+                      ) : friendData.avg_score < avgScore ? (
+                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30">You&apos;re winning!</Badge>
+                      ) : (
+                        <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Tied!</Badge>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center space-y-3">
+                    <Users className="h-12 w-12 text-white/20 mx-auto" />
+                    <p className="text-white/40 text-sm">Waiting for your friend to join...</p>
+                    <p className="text-white/60 font-mono tracking-widest text-2xl">{roomCode}</p>
+                    <p className="text-white/30 text-xs">Share this code</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Expert video — 40% left (only when YouTube, not practice mode) */}
+          {youtubeVideoId && inputMode !== "practice" && (
             <div className="w-[40%] flex flex-col bg-black relative border-r border-white/10">
               <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between">
                 <Badge variant="outline" className="border-red-500/40 text-red-400 bg-black/60 backdrop-blur-sm">
@@ -936,8 +1119,8 @@ When they ask questions, answer helpfully. Focus on form corrections.`,
             </div>
           )}
 
-          {/* Stats sidebar — only in zero-shot mode (no YouTube) */}
-          {!youtubeVideoId && (
+          {/* Stats sidebar — only in zero-shot mode (no YouTube, no practice) */}
+          {!youtubeVideoId && inputMode !== "practice" && (
             <div className="w-72 border-r border-border bg-sidebar overflow-y-auto">
               <div className="p-4 border-b border-border">
                 <div className="flex items-center justify-between mb-3">

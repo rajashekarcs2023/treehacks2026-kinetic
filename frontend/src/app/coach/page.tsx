@@ -754,12 +754,12 @@ function CoachContent() {
         </div>
       )}
 
-      {/* ══════ COACHING MODE — SPLIT SCREEN ══════ */}
+      {/* ══════ COACHING MODE ══════ */}
       {coachMode === "coaching" && (
         <>
-          {/* Left: YouTube or Score Panel */}
-          {youtubeVideoId ? (
-            <div className="w-1/2 flex flex-col bg-black relative">
+          {/* Expert video — 40% left (only when YouTube) */}
+          {youtubeVideoId && (
+            <div className="w-[40%] flex flex-col bg-black relative border-r border-white/10">
               <div className="absolute top-3 left-3 z-10">
                 <Badge variant="outline" className="border-red-500/40 text-red-400 bg-black/60 backdrop-blur-sm">
                   <Youtube className="h-3 w-3 mr-1" /> Expert
@@ -772,9 +772,11 @@ function CoachContent() {
                 allowFullScreen
               />
             </div>
-          ) : (
-            <div className="w-80 border-r border-border bg-sidebar overflow-y-auto">
-              {/* Session Stats */}
+          )}
+
+          {/* Stats sidebar — only in zero-shot mode (no YouTube) */}
+          {!youtubeVideoId && (
+            <div className="w-72 border-r border-border bg-sidebar overflow-y-auto">
               <div className="p-4 border-b border-border">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs text-muted-foreground font-medium">Session</p>
@@ -789,7 +791,6 @@ function CoachContent() {
                   <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(bestScore)}</p><p className="text-[10px] text-muted-foreground">Best</p></div>
                 </div>
               </div>
-              {/* Joint Feedback */}
               <div className="p-4 border-b border-border">
                 <p className="text-xs text-muted-foreground mb-3 font-medium">Joint Analysis</p>
                 <div className="space-y-2">
@@ -807,7 +808,6 @@ function CoachContent() {
                   ))}
                 </div>
               </div>
-              {/* Quality */}
               <div className="p-4 border-b border-border">
                 <p className="text-xs text-muted-foreground mb-3 font-medium">Movement Quality</p>
                 <div className="space-y-2.5">
@@ -829,7 +829,6 @@ function CoachContent() {
                   ))}
                 </div>
               </div>
-              {/* Score Trend */}
               {scores.length > 1 && (
                 <div className="p-4">
                   <p className="text-xs text-muted-foreground mb-3 font-medium">Score Trend</p>
@@ -843,7 +842,7 @@ function CoachContent() {
             </div>
           )}
 
-          {/* Right: Camera Feed */}
+          {/* Camera feed — 60% when YouTube, full when zero-shot */}
           <div className="flex-1 flex flex-col relative bg-black">
             {/* Top bar */}
             <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-3 bg-gradient-to-b from-black/80 to-transparent">
@@ -852,13 +851,34 @@ function CoachContent() {
                 <Badge variant="outline" className="border-green-500/40 text-green-500 animate-pulse text-[10px]">LIVE</Badge>
                 <span className="text-xs text-white/70 tabular-nums">{formatTime(elapsed)}</span>
               </div>
-              {youtubeVideoId && <ScoreRing score={currentScore} size={64} strokeWidth={5} />}
+              <ScoreRing score={currentScore} size={64} strokeWidth={5} />
             </div>
 
             {/* Camera */}
             <div className="flex-1 flex items-center justify-center relative">
               <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: "scaleX(-1)" }} />
-              <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+              <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ transform: "scaleX(-1)" }} />
+
+              {/* Stats overlay — top right (when YouTube mode, no sidebar) */}
+              {youtubeVideoId && (
+                <div className="absolute top-16 right-3 z-10 space-y-2">
+                  <div className="bg-black/60 backdrop-blur-sm rounded-xl p-2.5 border border-white/10 text-center">
+                    <p className="text-2xl font-bold text-white tabular-nums">{repCount}</p>
+                    <p className="text-[9px] text-white/50 uppercase">Reps</p>
+                  </div>
+                  <div className="bg-black/60 backdrop-blur-sm rounded-xl p-2 border border-white/10 text-center">
+                    <Badge variant="outline" className="text-[9px] border-primary/40 text-primary">{phase}</Badge>
+                  </div>
+                  <div className="bg-black/60 backdrop-blur-sm rounded-xl p-2 border border-white/10">
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      <span className="text-[9px] text-white/50">Avg</span>
+                      <span className="text-[10px] text-white font-medium tabular-nums">{Math.round(avgScore)}</span>
+                      <span className="text-[9px] text-white/50">Best</span>
+                      <span className="text-[10px] text-white font-medium tabular-nums">{Math.round(bestScore)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Coaching Feedback Overlay */}
               {currentFeedback && (
@@ -868,17 +888,6 @@ function CoachContent() {
                       <Sparkles className="h-4 w-4 text-primary shrink-0" />
                       <p className="text-sm text-white">{currentFeedback}</p>
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Rep counter overlay */}
-              {youtubeVideoId && (
-                <div className="absolute top-16 left-3 z-10">
-                  <div className="bg-black/60 backdrop-blur-sm rounded-xl p-2.5 border border-white/10 text-center">
-                    <p className="text-2xl font-bold text-white tabular-nums">{repCount}</p>
-                    <p className="text-[9px] text-white/50 uppercase">Reps</p>
-                    <Badge variant="outline" className="mt-1 text-[9px] border-primary/40 text-primary">{phase}</Badge>
                   </div>
                 </div>
               )}
@@ -899,56 +908,6 @@ function CoachContent() {
               </div>
             </div>
           </div>
-
-          {/* Far right: coaching data panel (when YouTube is showing) */}
-          {youtubeVideoId && !isFullscreen && (
-            <div className="w-72 border-l border-border bg-sidebar overflow-y-auto">
-              <div className="p-3 border-b border-border">
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{repCount}</p><p className="text-[10px] text-muted-foreground">Reps</p></div>
-                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(avgScore)}</p><p className="text-[10px] text-muted-foreground">Avg</p></div>
-                  <div className="text-center"><p className="text-lg font-bold tabular-nums">{Math.round(bestScore)}</p><p className="text-[10px] text-muted-foreground">Best</p></div>
-                </div>
-              </div>
-              <div className="p-3 border-b border-border">
-                <p className="text-xs text-muted-foreground mb-2 font-medium">Joints</p>
-                <div className="space-y-1.5">
-                  {joints.map((j) => (
-                    <div key={j.name} className={`flex items-center gap-2 p-1.5 rounded border ${getStatusBg(j.status)}`}>
-                      <div className={`h-1.5 w-1.5 rounded-full ${j.status === "good" ? "bg-green-500" : j.status === "warning" ? "bg-yellow-500" : "bg-red-500"}`} />
-                      <span className="text-[11px] flex-1">{j.name}</span>
-                      <span className={`text-[11px] tabular-nums ${getStatusColor(j.status)}`}>{j.angle}°</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="p-3">
-                <p className="text-xs text-muted-foreground mb-2 font-medium">Quality</p>
-                <div className="space-y-2">
-                  {[
-                    { label: "Smooth", value: quality.smoothness },
-                    { label: "Symmetry", value: quality.symmetry },
-                    { label: "ROM", value: quality.rangeOfMotion },
-                    { label: "Tempo", value: quality.tempoConsistency },
-                  ].map((m) => (
-                    <div key={m.label}>
-                      <div className="flex justify-between mb-0.5"><span className="text-[11px]">{m.label}</span><span className="text-[11px] text-muted-foreground">{Math.round(m.value)}%</span></div>
-                      <div className="h-1 rounded-full bg-secondary"><div className="h-full rounded-full transition-all duration-500" style={{ width: `${m.value}%`, backgroundColor: m.value >= 80 ? "#06b6d4" : m.value >= 60 ? "#22c55e" : "#f59e0b" }} /></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {scores.length > 1 && (
-                <div className="p-3 border-t border-border">
-                  <div className="flex items-end gap-[2px] h-12">
-                    {scores.slice(-20).map((s, i) => (
-                      <div key={i} className="flex-1 rounded-sm transition-all duration-300" style={{ height: `${(s / 100) * 100}%`, backgroundColor: s >= 80 ? "#06b6d4" : s >= 60 ? "#22c55e" : s >= 40 ? "#f59e0b" : "#ef4444", opacity: 0.5 + (i / scores.slice(-20).length) * 0.5 }} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
     </div>

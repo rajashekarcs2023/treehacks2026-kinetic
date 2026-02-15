@@ -14,3 +14,6 @@ data/models/*.pt
 data/activity/*.pt
 node_modules/
 .next/
+*.pt
+models/*.task
+data/references/

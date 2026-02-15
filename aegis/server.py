@@ -873,6 +873,9 @@ async def ws_video(websocket: WebSocket):
                             _recording_session.add_frame(pose_points)
                         if _coaching_session and _coaching_ws_clients:
                             coaching_result = _coaching_session.add_frame(pose_points)
+                            # Convert pose points for frontend skeleton drawing
+                            landmarks = [[float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 1.0] for p in pose_points[:33]]
+
                             if coaching_result:
                                 # Reference-based coaching
                                 coaching_msg = json.dumps({
@@ -880,6 +883,7 @@ async def ws_video(websocket: WebSocket):
                                     "data": coaching_result.to_dict(),
                                     "reps": _coaching_session.get_rep_count(),
                                     "frame": _coaching_session.frame_count,
+                                    "landmarks": landmarks,
                                 })
                             else:
                                 # Zero-shot coaching: score from joint angles
@@ -896,6 +900,7 @@ async def ws_video(websocket: WebSocket):
                                 )
                                 coaching_msg = json.dumps({
                                     "type": "coaching",
+                                    "landmarks": landmarks,
                                     "data": {
                                         "similarity_score": round(score, 1),
                                         "per_joint_deviation": {

@@ -179,6 +179,62 @@ function CoachContent() {
     return () => clearInterval(interval);
   }, [isCoaching]);
 
+  // Skeleton drawing on canvas overlay
+  const SKELETON_CONNECTIONS = [
+    [11, 12], // shoulders
+    [11, 13], [13, 15], // left arm
+    [12, 14], [14, 16], // right arm
+    [11, 23], [12, 24], // torso sides
+    [23, 24], // hips
+    [23, 25], [25, 27], // left leg
+    [24, 26], [26, 28], // right leg
+    [27, 29], [28, 30], // ankles to heels
+    [27, 31], [28, 32], // ankles to toes
+  ];
+
+  const drawSkeleton = useCallback((landmarks: number[][]) => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Draw connections
+    ctx.lineWidth = 3;
+    for (const [i, j] of SKELETON_CONNECTIONS) {
+      if (i >= landmarks.length || j >= landmarks.length) continue;
+      const [x1, y1, v1] = landmarks[i];
+      const [x2, y2, v2] = landmarks[j];
+      if (v1 < 0.3 || v2 < 0.3) continue;
+      // Mirror x because camera is mirrored
+      const sx1 = (1 - x1) * w, sy1 = y1 * h;
+      const sx2 = (1 - x2) * w, sy2 = y2 * h;
+      ctx.strokeStyle = "rgba(0, 255, 200, 0.7)";
+      ctx.beginPath();
+      ctx.moveTo(sx1, sy1);
+      ctx.lineTo(sx2, sy2);
+      ctx.stroke();
+    }
+
+    // Draw joints
+    for (let i = 0; i < landmarks.length && i < 33; i++) {
+      const [x, y, vis] = landmarks[i];
+      if (vis < 0.3) continue;
+      const sx = (1 - x) * w, sy = y * h;
+      ctx.fillStyle = vis > 0.7 ? "rgba(0, 255, 150, 0.9)" : "rgba(255, 200, 0, 0.7)";
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, []);
+
   // Try connecting coaching WebSocket (real data overrides simulation)
   useEffect(() => {
     if (!isCoaching) return;
@@ -198,6 +254,11 @@ function CoachContent() {
           if (msg.type === "coaching" && msg.data) {
             receivingRealData.current = true;
             const d = msg.data;
+
+            // Draw skeleton overlay
+            if (msg.landmarks) {
+              drawSkeleton(msg.landmarks);
+            }
 
             // Score
             if (d.similarity_score !== undefined) {

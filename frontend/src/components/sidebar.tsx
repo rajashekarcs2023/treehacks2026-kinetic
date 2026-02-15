@@ -11,13 +11,7 @@ import {
   Settings,
   Zap,
   Mic,
-  Globe,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -25,64 +19,55 @@ const NAV_ITEMS = [
   { href: "/skills", icon: Trophy, label: "Skills" },
   { href: "/history", icon: History, label: "History" },
   { href: "/settings", icon: Settings, label: "Settings" },
-  { href: "/product", icon: Globe, label: "Product" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-[72px] flex-col items-center border-r border-border bg-sidebar py-4">
+    <aside className="flex h-screen w-[180px] flex-col border-r border-border bg-sidebar py-4 px-3">
       {/* Logo */}
       <Link
         href="/"
-        className="mb-8 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground"
+        className="mb-8 flex items-center gap-2.5 px-2"
       >
-        <Zap className="h-5 w-5" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <Zap className="h-4 w-4" />
+        </div>
+        <span className="text-sm font-bold tracking-tight">Kinetic AI</span>
       </Link>
 
       {/* Nav Items */}
-      <nav className="flex flex-1 flex-col items-center gap-2">
+      <nav className="flex flex-1 flex-col gap-1">
         {NAV_ITEMS.map((item) => {
           const isActive =
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
           return (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200",
-                    isActive
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  )}
-                >
-                  <item.icon className="h-5 w-5" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={8}>
-                {item.label}
-              </TooltipContent>
-            </Tooltip>
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-200",
+                isActive
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </Link>
           );
         })}
       </nav>
 
       {/* Voice indicator at bottom */}
-      <div className="mt-auto flex flex-col items-center gap-3">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-muted-foreground transition-all hover:border-primary hover:text-primary">
-              <Mic className="h-4 w-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            Voice Assistant
-          </TooltipContent>
-        </Tooltip>
+      <div className="mt-auto px-2">
+        <button className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-all hover:bg-accent hover:text-foreground">
+          <Mic className="h-4 w-4 shrink-0" />
+          Voice
+        </button>
       </div>
     </aside>
   );

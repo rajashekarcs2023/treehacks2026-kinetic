@@ -20,6 +20,8 @@ import {
   HeartPulse,
   Hand,
   Monitor,
+  Globe,
+  FileText,
 } from "lucide-react";
 
 interface SessionSummary {
@@ -82,11 +84,27 @@ export default function Dashboard() {
     <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
-          <p className="text-muted-foreground mt-1">
-            Master any physical skill with AI — rehab recovery, yoga, sign language, and beyond.
-          </p>
+        <div className="flex items-start gap-6">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
+            <p className="text-muted-foreground mt-1">
+              Master any physical skill with AI — rehab recovery, yoga, sign language, and beyond.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 shrink-0">
+            <Link href="/product">
+              <Button variant="outline" size="sm" className="gap-2 w-full justify-start">
+                <Globe className="h-4 w-4" />
+                Product
+              </Button>
+            </Link>
+            <Link href="/paper">
+              <Button variant="outline" size="sm" className="gap-2 w-full justify-start">
+                <FileText className="h-4 w-4" />
+                Tech Paper
+              </Button>
+            </Link>
+          </div>
         </div>
         <Link href="/coach">
           <Button size="lg" className="gap-2 animate-pulse-glow">

@@ -377,6 +377,82 @@ def get_hand_landmarks() -> dict:
 
 
 @mcp.tool(tags={"pose"}, annotations={"readOnlyHint": True})
+def check_landmark_visibility(
+    track_id: Annotated[int, "Tracking ID of the person"],
+) -> dict:
+    """Check if key body landmarks are visible and in-frame.
+
+    Detects camera coverage issues (legs cut off, too close, too far)
+    and landmark occlusion (body parts hidden behind others).
+    Returns visibility status for key joints and actionable warnings.
+    """
+    _inc_tool_calls()
+    if _engine is None:
+        return {"error": "Engine not initialized"}
+
+    landmarks = _get_raw_landmarks(track_id)
+    if landmarks is None:
+        return {"error": f"No pose landmarks for person {track_id}"}
+
+    state = _engine.get_state()
+    frame_w = state.get("frame_width", 1920)
+    frame_h = state.get("frame_height", 1080)
+
+    KEY_LANDMARKS = {
+        0: "nose", 11: "left_shoulder", 12: "right_shoulder",
+        13: "left_elbow", 14: "right_elbow", 15: "left_wrist", 16: "right_wrist",
+        23: "left_hip", 24: "right_hip", 25: "left_knee", 26: "right_knee",
+        27: "left_ankle", 28: "right_ankle",
+    }
+
+    warnings = []
+    visible = {}
+    occluded = []
+    out_of_frame = []
+    edge_margin = 40  # pixels from edge
+
+    for idx, name in KEY_LANDMARKS.items():
+        if idx >= len(landmarks):
+            continue
+        x, y, vis = landmarks[idx]
+
+        # Check visibility (MediaPipe confidence)
+        is_visible = vis > 0.3
+        visible[name] = round(vis, 2)
+
+        if not is_visible:
+            occluded.append(name)
+        elif x < edge_margin or x > frame_w - edge_margin or y < edge_margin or y > frame_h - edge_margin:
+            out_of_frame.append(name)
+
+    # Generate actionable warnings
+    if any(n in out_of_frame for n in ["left_ankle", "right_ankle", "left_knee", "right_knee"]):
+        warnings.append("Your legs are cut off — try stepping back from the camera")
+    if any(n in out_of_frame for n in ["nose", "left_shoulder", "right_shoulder"]):
+        warnings.append("Your upper body is partially out of frame — adjust your position")
+    if len(occluded) >= 4:
+        warnings.append("Several joints are hidden — try facing the camera more directly")
+    elif occluded:
+        joint_names = [n.replace("_", " ") for n in occluded[:3]]
+        warnings.append(f"Can't see your {', '.join(joint_names)} clearly — try adjusting your angle")
+
+    # Overall coverage assessment
+    total_key = len(KEY_LANDMARKS)
+    visible_count = total_key - len(occluded) - len(out_of_frame)
+    coverage_pct = round(100 * visible_count / total_key)
+
+    return {
+        "track_id": track_id,
+        "coverage_percent": coverage_pct,
+        "visible_landmarks": visible,
+        "occluded": occluded,
+        "out_of_frame": out_of_frame,
+        "warnings": warnings,
+        "status": "good" if coverage_pct >= 80 else "partial" if coverage_pct >= 50 else "poor",
+    }
+
+
+@mcp.tool(tags={"pose"}, annotations={"readOnlyHint": True})
 def get_dgx_wholebody() -> dict:
     """Get 133 whole-body keypoints from NVIDIA DGX Spark GPU inference.
 
@@ -687,16 +763,23 @@ def speak_to_user(
     """
     _inc_tool_calls()
 
-    # Try Gemini Live bridge first (natural voice)
+    # Try OpenAI Realtime first (best quality), then Gemini fallback
     try:
         import aegis.server as srv
-        if srv.gemini_bridge and srv.gemini_bridge.is_connected:
+        urgency_prefix = ""
+        if urgency == "high":
+            urgency_prefix = "Say this with urgency: "
+        elif urgency == "critical":
+            urgency_prefix = "Say this with extreme urgency, as a critical alert: "
+        if srv.openai_voice and srv.openai_voice.is_connected:
             import asyncio
-            urgency_prefix = ""
-            if urgency == "high":
-                urgency_prefix = "Say this with urgency: "
-            elif urgency == "critical":
-                urgency_prefix = "Say this with extreme urgency, as a critical alert: "
+            asyncio.run_coroutine_threadsafe(
+                srv.openai_voice.speak(f"{urgency_prefix}{message}"),
+                asyncio.get_event_loop(),
+            )
+            return {"status": "speaking_openai", "message": message, "urgency": urgency}
+        elif srv.gemini_bridge and srv.gemini_bridge.is_connected:
+            import asyncio
             asyncio.run_coroutine_threadsafe(
                 srv.gemini_bridge.speak(f"{urgency_prefix}{message}"),
                 asyncio.get_event_loop(),

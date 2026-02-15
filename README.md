@@ -1,38 +1,44 @@
-# Kinetic — Real-Time AI Skill Coach
+# Kinetic — Real-Time Physical Movement Intelligence
 
-> **"Learn any physical skill from any expert — in real-time, through voice."**
+> **"One camera. One AI. Coaches your squat, detects a fall, guides PT rehab, monitors a hospital room."**
 
-Kinetic uses computer vision, multi-agent AI, and natural voice to coach you through any physical movement. Point your camera, name a skill, and get real-time feedback — scored, spoken, and visualized.
+Kinetic is a unified platform for **physical movement intelligence** — AI skill coaching, physical therapy rehab, autonomous space monitoring, and clinical patient safety — all from the same CV + agent + voice stack.
 
-No expert video needed. Just describe the skill and Kinetic generates the reference using state-of-the-art 3D motion generation.
+4 modes. 46 MCP tools. 10 ML models. 17,000+ lines. Built solo in 20 hours at TreeHacks 2026.
 
 ---
 
 ## Demo
 
 🎥 [Loom Demo Video](#) <!-- TODO: Add Loom link -->
+🌐 [Live Frontend](https://frontend-fwostf2pc-rajashekarvs-projects.vercel.app)
 
-**Live Endpoints:**
-- 🚀 **Modal Motion API**: `https://rajashekarvennavelli--aegis-motion-generate-endpoint.modal.run`
-- 🖥️ **DGX Spark Edge AI**: 17-keypoint real-time pose estimation on NVIDIA GB10 Superchip
+**Infrastructure:**
+- 🖥️ **DGX Spark**: 17-keypoint real-time pose on NVIDIA GB10 Superchip
+- 🚀 **Modal A100**: HY-Motion 1.0-Lite text-to-3D motion generation
+- 🤖 **46 MCP Tools**: Full stack exposed via HTTP for external AI agents (Poke)
 
 ---
 
-## How It Works
+## 4 Modes, One Stack
 
 ```
-You say: "teach me a squat"
-    │
-    ├─→ AI Expert generates ideal skeleton (Claude + HY-Motion 1.0 on A100 GPU)
-    │
-    ├─→ Camera tracks your body (YOLO + MediaPipe, 33 joints, 30 FPS)
-    │
-    ├─→ Scores your form in real-time (Gaussian angles + Cosine + COCO OKS)
-    │
-    ├─→ AI voice coaches you: "Knees out! Great depth. Two more."
-    │   (OpenAI GPT-4o Realtime, natural interruption)
-    │
-    └─→ Claude Agent orchestrates everything (3 sub-agents, 44 MCP tools)
+┌─────────────────────────────────────────────────────────┐
+│                    KINETIC PLATFORM                      │
+├──────────────┬──────────────┬──────────┬────────────────┤
+│  🏋️ Coaching  │  🩺 PT Rehab  │ 🎯 Goals │  🏥 Clinical   │
+│              │              │          │                │
+│ Any skill    │ Knee/shoulder│ Fall     │ Fall detection │
+│ Voice coach  │ Safe ROM     │ Posture  │ Bed exit alert │
+│ AI expert    │ Rep counting │ Security │ Immobility     │
+│ Scoring      │ Voice rehab  │ Focus    │ Wandering      │
+├──────────────┴──────────────┴──────────┴────────────────┤
+│  CV Pipeline: YOLO + MediaPipe + ByteTrack + Depth      │
+│  Agent: Claude SDK (3 sub-agents, 46 MCP tools, hooks)  │
+│  Voice: OpenAI Realtime (bidirectional, interruption)   │
+│  Edge AI: DGX Spark + Modal A100 (HY-Motion 1.0)       │
+│  Alerts: Telegram + Voice + Frontend dashboard          │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -210,12 +216,12 @@ kinetic/
 
 ## Built at TreeHacks 2026 🌲
 
-Solo-built in 20 hours. 17,000+ lines. 10 models. 6 infrastructure pillars.
+Solo-built in 20 hours. 17,000+ lines. 10 models. 4 modes. 46 MCP tools.
 
 **Powered by:**
-- **Anthropic** Claude Sonnet 4 + Agent SDK
-- **OpenAI** GPT-4o Realtime API
-- **NVIDIA** DGX Spark (GB10 Superchip)
-- **Modal** A100 GPU Cloud
-- **Tencent** HY-Motion 1.0-Lite
-- **Google** MediaPipe Pose + Hands
+- **Anthropic** Claude Sonnet 4 + Agent SDK (3 sub-agents, hooks, MCP)
+- **OpenAI** GPT-4o Realtime API (bidirectional voice coaching)
+- **NVIDIA** DGX Spark GB10 Superchip (edge pose estimation)
+- **Modal** A100 GPU Cloud (HY-Motion 1.0-Lite, text-to-3D motion)
+- **Google** MediaPipe Pose + Hands (33 body + 21 hand landmarks)
+- **Poke** MCP integration (46 tools exposed via HTTP/SSE)

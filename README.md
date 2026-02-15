@@ -11,7 +11,7 @@ Kinetic is a unified platform for **physical movement intelligence** — AI skil
 ## Demo
 
 🎥 [Loom Demo Video](#) <!-- TODO: Add Loom link -->
-🌐 [Live Frontend](https://frontend-fwostf2pc-rajashekarvs-projects.vercel.app/)
+🌐 [Live Frontend](https://frontend-qh6de6ixx-rajashekarvs-projects.vercel.app)
 
 **Infrastructure:**
 - 🖥️ **DGX Spark**: 17-keypoint real-time pose on NVIDIA GB10 Superchip

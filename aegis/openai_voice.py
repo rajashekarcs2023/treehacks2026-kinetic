@@ -3,12 +3,13 @@ OpenAI Realtime Voice Bridge — Best-in-class conversational coaching voice.
 
 Uses OpenAI's Realtime API (GPT-4o) for bidirectional voice:
   - User speaks → GPT-4o hears, reasons about coaching context, responds naturally
-  - Backend injects coaching data (scores, reps, corrections) as context
-  - GPT-4o speaks coaching feedback in a natural, encouraging voice
+  - Backend injects coaching data via session.update (no conversation pollution)
+  - Coaching cues delivered via response.create with per-response instructions
 
 Architecture:
   Mic (frontend) → /ws/audio → OpenAI Realtime API → audio out → frontend speaker
-  Coaching data (backend) → injected as text context → GPT-4o incorporates into voice
+  Coaching data (backend) → session.update instructions → GPT-4o sees as system context
+  speak() → response.create with instructions → clean, no fake user messages
 """
 
 import asyncio
@@ -23,13 +24,13 @@ import websockets
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17"
 
 
-def _build_coaching_instructions() -> str:
-    return """You are AEGIS, an AI physical skill coach. You are currently in a live coaching session, watching the user through their camera and helping them practice a physical skill.
+def _build_coaching_instructions(skill: str = "", session_history: str = "", coaching_data: str = "") -> str:
+    base = """You are AEGIS, an AI physical skill coach. You are currently in a live coaching session, watching the user through their camera and helping them practice a physical skill.
 
 ## Your Role
 - You are a warm, encouraging personal coach speaking to the user in real-time
-- You receive periodic COACHING UPDATES with their score, rep count, and form corrections
 - You speak naturally — short, punchy cues during movement, longer explanations during rest
+- Keep ALL responses to 1-2 sentences max unless the user asks a question
 
 ## How to Coach
 - Count reps aloud: "That's 3! Nice one."
@@ -48,18 +49,10 @@ def _build_coaching_instructions() -> str:
 - If they sound FRUSTRATED: Be empathetic — "I know it's tough. Let's break it down step by step"
 - If they sound EXCITED: Be excited with them — mirror their energy
 
-## Proactive Check-ins
-- If score drops 3 reps in a row: "Hey, want to take a quick break? Or should we try a different approach?"
-- If no movement for 15+ seconds: "You still there? Ready when you are!"
-- After 10 reps: "Great set! Want to keep going or take a breather?"
-- If coverage warning: "I can't see your full body — try stepping back a bit"
-
 ## Multi-Language Support
 - If the user speaks in a different language, RESPOND IN THAT LANGUAGE
-- If they say "coach me in Spanish" or "en español" → switch to Spanish coaching
-- If they say "coach me in Hindi" or use Hindi → switch to Hindi
+- If they say "coach me in Spanish" → switch to Spanish coaching
 - Maintain the same coaching quality in any language
-- You can switch back to English if they ask
 
 ## Skill-Specific Coaching
 - Physical Therapy: Be gentle, focus on safety, emphasize range of motion
@@ -67,15 +60,6 @@ def _build_coaching_instructions() -> str:
 - Sign Language: Guide hand shapes precisely, "curl your ring finger more"
 - Dance: Be energetic, count beats, "and 5, 6, 7, 8!"
 - Fitness: Be motivating, "one more! push through!"
-- Elderly Mobility: Be patient, prioritize balance and safety, celebrate every rep
-- Tai Chi: Calm and flowing, focus on weight transfer and breathing
-- Ergonomics: Desk posture cues, "relax your shoulders, screen at eye level"
-
-## Session Memory
-- When you receive [SESSION HISTORY], use it to personalize coaching
-- Reference past performance: "Last time you averaged 78 on squats, let's beat that"
-- Remember their weak points: "We worked on knee alignment last time — let's check that"
-- Track improvement across sessions: "Your form has improved so much since we started!"
 
 ## Key Rules
 - NEVER give medical advice — say "check with your doctor"
@@ -83,11 +67,29 @@ def _build_coaching_instructions() -> str:
 - Keep responses to 1-2 sentences during active movement
 - Always be encouraging — never make them feel bad
 - You can hear them talk — respond to their questions naturally
-- If camera coverage is poor, guide them to reposition"""
+- If camera coverage is poor, guide them to reposition
+- Do NOT repeat yourself or echo coaching data back verbatim"""
+
+    extras = []
+    if skill:
+        extras.append(f"\n## Current Skill: {skill}")
+    if session_history:
+        extras.append(f"\n## Session History\n{session_history}")
+    if coaching_data:
+        extras.append(f"\n## Live Coaching Data (use to inform cues, do NOT read aloud)\n{coaching_data}")
+
+    return base + "\n".join(extras)
 
 
 class OpenAIVoiceBridge:
-    """Bidirectional voice bridge using OpenAI Realtime API."""
+    """Bidirectional voice bridge using OpenAI Realtime API.
+
+    Key design decisions for conversation quality:
+    - Coaching data injected via session.update (no conversation pollution)
+    - speak() uses response.create with per-response instructions (no fake user messages)
+    - Speak lock prevents overlapping coaching responses
+    - Audio queue uses put_nowait to never block the receive loop
+    """
 
     def __init__(self, api_key: str):
         self._api_key = api_key
@@ -96,17 +98,19 @@ class OpenAIVoiceBridge:
         self._receive_task: Optional[asyncio.Task] = None
 
         # Audio output queue (PCM 24kHz 16-bit mono)
-        self._audio_out_queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+        self._audio_out_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
         # Callbacks
         self._on_transcript: Optional[Callable[[str], None]] = None
         self._on_audio_out: Optional[Callable[[bytes], None]] = None
 
         # State
-        self._last_context_time = 0
-        self._context_interval = 5.0
         self._user_speaking = False
         self._response_in_progress = False
+        self._speak_lock = asyncio.Lock()
+        self._current_skill = ""
+        self._session_history = ""
+        self._latest_coaching_data = ""
 
     @property
     def is_connected(self) -> bool:
@@ -124,15 +128,12 @@ class OpenAIVoiceBridge:
                 additional_headers=headers,
                 ping_interval=20,
                 ping_timeout=10,
-                max_size=10 * 1024 * 1024,  # 10MB max message
+                max_size=10 * 1024 * 1024,
             )
             self._connected = True
             print("[OpenAI Voice] Connected to Realtime API")
 
-            # Configure session
             await self._configure_session()
-
-            # Start receive loop
             self._receive_task = asyncio.create_task(self._receive_loop())
 
             return True
@@ -147,7 +148,11 @@ class OpenAIVoiceBridge:
             "type": "session.update",
             "session": {
                 "modalities": ["text", "audio"],
-                "instructions": _build_coaching_instructions(),
+                "instructions": _build_coaching_instructions(
+                    skill=self._current_skill,
+                    session_history=self._session_history,
+                    coaching_data=self._latest_coaching_data,
+                ),
                 "voice": "alloy",
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -156,12 +161,12 @@ class OpenAIVoiceBridge:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.5,
+                    "threshold": 0.7,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500,
+                    "silence_duration_ms": 800,
                 },
                 "temperature": 0.7,
-                "max_response_output_tokens": 150,
+                "max_response_output_tokens": 100,
             },
         }
         await self._ws.send(json.dumps(session_config))
@@ -182,91 +187,105 @@ class OpenAIVoiceBridge:
         print("[OpenAI Voice] Disconnected")
 
     async def send_audio(self, pcm_bytes: bytes):
-        """Send raw PCM audio from user's mic (16kHz 16-bit mono)."""
+        """Send raw PCM audio from user's mic (24kHz 16-bit mono)."""
         if not self._connected or not self._ws:
             return
         try:
             audio_b64 = base64.b64encode(pcm_bytes).decode("utf-8")
-            event = {
+            await self._ws.send(json.dumps({
                 "type": "input_audio_buffer.append",
                 "audio": audio_b64,
-            }
-            await self._ws.send(json.dumps(event))
+            }))
         except Exception as e:
             print(f"[OpenAI Voice] Send audio error: {e}")
 
     async def inject_coaching_context(self, context: str):
-        """Inject coaching data as a text context message.
+        """Update session instructions with latest coaching data.
 
-        This tells GPT-4o about the user's current score, reps, corrections, etc.
-        GPT-4o will naturally incorporate this into its voice coaching.
-        Skips injection while user is speaking or AI is responding.
+        Uses session.update to put coaching data in the system prompt.
+        This does NOT create conversation items — keeps conversation clean.
+        GPT-4o sees this data as background context for its next response.
         """
-        now = time.time()
-        if now - self._last_context_time < self._context_interval:
+        if not self._connected or not self._ws:
             return
         if self._user_speaking or self._response_in_progress:
             return
-        self._last_context_time = now
 
-        if not self._connected or not self._ws:
-            return
+        self._latest_coaching_data = context
 
         try:
-            event = {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": f"[COACHING DATA — do not read this verbatim, use it to inform your next coaching cue]\n{context}",
-                        }
-                    ],
+            await self._ws.send(json.dumps({
+                "type": "session.update",
+                "session": {
+                    "instructions": _build_coaching_instructions(
+                        skill=self._current_skill,
+                        session_history=self._session_history,
+                        coaching_data=context,
+                    ),
                 },
-            }
-            await self._ws.send(json.dumps(event))
-            # No response.create here — context is silent background info
-            # Only speak() triggers actual voice output
+            }))
         except Exception as e:
             print(f"[OpenAI Voice] Context inject error: {e}")
 
+    def set_skill(self, skill_name: str):
+        """Set the current skill being coached."""
+        self._current_skill = skill_name
+
+    def set_session_history(self, history: str):
+        """Set session history for personalized coaching."""
+        self._session_history = history
+
     async def speak(self, text: str):
-        """Make the AI speak a specific coaching message.
-        Skips if user is currently speaking."""
+        """Make the AI speak a coaching message.
+
+        Uses response.create with per-response instructions.
+        Does NOT create conversation items — no conversation pollution.
+        Uses a lock to prevent overlapping coaching speech.
+        """
         if not self._connected or not self._ws:
             return False
         if self._user_speaking:
-            return False  # Don't interrupt user
-
-        try:
-            event = {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": f"Say this to the user naturally (1-2 sentences max): {text}",
-                        }
-                    ],
-                },
-            }
-            await self._ws.send(json.dumps(event))
-
-            response_event = {
-                "type": "response.create",
-                "response": {
-                    "modalities": ["text", "audio"],
-                },
-            }
-            await self._ws.send(json.dumps(response_event))
-            return True
-        except Exception as e:
-            print(f"[OpenAI Voice] Speak error: {e}")
             return False
+
+        async with self._speak_lock:
+            # Cancel any in-progress response first
+            if self._response_in_progress:
+                await self._cancel_current_response()
+
+            try:
+                await self._ws.send(json.dumps({
+                    "type": "response.create",
+                    "response": {
+                        "modalities": ["text", "audio"],
+                        "instructions": (
+                            f"Say this coaching cue to the user warmly and naturally. "
+                            f"Do NOT add extra commentary or questions. Just deliver this cue concisely:\n\n"
+                            f"{text}"
+                        ),
+                    },
+                }))
+                return True
+            except Exception as e:
+                print(f"[OpenAI Voice] Speak error: {e}")
+                return False
+
+    async def _cancel_current_response(self):
+        """Cancel in-progress response and clear audio queue."""
+        try:
+            await self._ws.send(json.dumps({"type": "response.cancel"}))
+        except Exception:
+            pass
+        self._response_in_progress = False
+        self._flush_audio_queue()
+        await asyncio.sleep(0.15)
+
+    def _flush_audio_queue(self):
+        """Clear all queued audio chunks."""
+        while not self._audio_out_queue.empty():
+            try:
+                self._audio_out_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     async def get_audio_output(self, timeout: float = 0.1) -> Optional[bytes]:
         """Get next chunk of audio output (24kHz PCM 16-bit mono)."""
@@ -283,60 +302,67 @@ class OpenAIVoiceBridge:
                     event = json.loads(raw_msg)
                     event_type = event.get("type", "")
 
-                    # Audio output delta
+                    # Audio output delta — use put_nowait to never block
                     if event_type == "response.audio.delta":
                         audio_b64 = event.get("delta", "")
                         if audio_b64:
                             audio_bytes = base64.b64decode(audio_b64)
-                            await self._audio_out_queue.put(audio_bytes)
+                            try:
+                                self._audio_out_queue.put_nowait(audio_bytes)
+                            except asyncio.QueueFull:
+                                # Drop oldest chunk to make room
+                                try:
+                                    self._audio_out_queue.get_nowait()
+                                except asyncio.QueueEmpty:
+                                    pass
+                                try:
+                                    self._audio_out_queue.put_nowait(audio_bytes)
+                                except asyncio.QueueFull:
+                                    pass
                             if self._on_audio_out:
                                 self._on_audio_out(audio_bytes)
 
-                    # Audio transcript
-                    elif event_type == "response.audio_transcript.delta":
-                        text = event.get("delta", "")
-                        if text and self._on_transcript:
-                            self._on_transcript(text)
+                    # Audio transcript (what the AI is saying)
+                    elif event_type == "response.audio_transcript.done":
+                        text = event.get("transcript", "")
+                        if text:
+                            print(f"[OpenAI Voice] AI said: {text}")
 
-                    # Session created
+                    # Session events
                     elif event_type == "session.created":
                         print("[OpenAI Voice] Session created successfully")
-
-                    # Session updated
                     elif event_type == "session.updated":
-                        print("[OpenAI Voice] Session configured")
+                        pass  # Silent — frequent updates from context injection
 
-                    # Error
+                    # Errors
                     elif event_type == "error":
                         err = event.get("error", {})
                         print(f"[OpenAI Voice] Error: {err.get('message', err)}")
 
-                    # User started speaking — pause coaching
+                    # User speaking state — critical for interruption handling
                     elif event_type == "input_audio_buffer.speech_started":
                         self._user_speaking = True
-                        self._response_in_progress = False
-                        # Clear queued audio so old coaching doesn't play
-                        while not self._audio_out_queue.empty():
+                        # Cancel current AI response immediately
+                        if self._response_in_progress:
                             try:
-                                self._audio_out_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                break
+                                await self._ws.send(json.dumps({"type": "response.cancel"}))
+                            except Exception:
+                                pass
+                            self._response_in_progress = False
+                        self._flush_audio_queue()
 
-                    # User stopped speaking
                     elif event_type == "input_audio_buffer.speech_stopped":
                         self._user_speaking = False
 
-                    # Input audio transcription
+                    # User transcript
                     elif event_type == "conversation.item.input_audio_transcription.completed":
                         transcript = event.get("transcript", "")
                         if transcript:
                             print(f"[OpenAI Voice] User said: {transcript}")
 
-                    # Response started
+                    # Response lifecycle
                     elif event_type == "response.created":
                         self._response_in_progress = True
-
-                    # Response done — resume coaching
                     elif event_type == "response.done":
                         self._response_in_progress = False
 

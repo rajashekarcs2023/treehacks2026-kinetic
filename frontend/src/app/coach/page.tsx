@@ -496,6 +496,7 @@ function CoachContent() {
 
         // Playback context for AI voice output (24kHz PCM)
         playbackCtx = new AudioContext({ sampleRate: 24000 });
+        let nextPlayTime = 0; // Schedule chunks sequentially to prevent overlap
 
         audioWs.onmessage = (event) => {
           try {
@@ -513,7 +514,11 @@ function CoachContent() {
               const source = playbackCtx.createBufferSource();
               source.buffer = buffer;
               source.connect(playbackCtx.destination);
-              source.start();
+              // Schedule sequentially: each chunk starts after the previous one ends
+              const now = playbackCtx.currentTime;
+              const startTime = Math.max(now, nextPlayTime);
+              source.start(startTime);
+              nextPlayTime = startTime + buffer.duration;
             }
           } catch {
             // ignore malformed
@@ -522,10 +527,6 @@ function CoachContent() {
 
         audioWs.onopen = () => {
           console.log("[Kinetic] Voice connected (OpenAI Realtime)");
-          audioWs.send(JSON.stringify({
-            type: "text",
-            data: `The user is practicing "${selectedSkill}". Give proactive coaching cues based on their movement data. Be encouraging and specific.`,
-          }));
         };
 
         audioWs.onerror = () => console.warn("[Kinetic] Voice WS error");
@@ -578,7 +579,7 @@ function CoachContent() {
           const ws = audioWsRef.current;
           if (!ws || ws.readyState !== WebSocket.OPEN) return;
           const input = e.inputBuffer.getChannelData(0);
-          const TARGET_SR = 16000;
+          const TARGET_SR = 24000;
           const ratio = nativeSR / TARGET_SR;
           const outLen = Math.floor(input.length / ratio);
           const pcm16 = new Int16Array(outLen);
@@ -615,20 +616,8 @@ function CoachContent() {
     };
   }, [isCoaching, micActive]);
 
-  // Send coaching context to OpenAI Realtime periodically for proactive voice coaching
-  useEffect(() => {
-    if (!isCoaching || !audioWsRef.current) return;
-    const interval = setInterval(() => {
-      const ws = audioWsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const context = {
-        type: "text",
-        data: `[COACHING UPDATE] Score: ${Math.round(currentScore)}/100, Reps: ${repCount}, Phase: ${phase}, Avg: ${Math.round(avgScore)}, Best: ${Math.round(bestScore)}. ${currentFeedback ? `Current issue: ${currentFeedback}` : "Form looks good."}`,
-      };
-      ws.send(JSON.stringify(context));
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isCoaching, currentScore, repCount, phase, avgScore, bestScore, currentFeedback]);
+  // Coaching context is now injected by the backend coaching loop via session.update
+  // No frontend context injection needed — prevents duplicate/conflicting voice triggers
 
   // Poll room leaderboard for friend's data in practice mode
   useEffect(() => {

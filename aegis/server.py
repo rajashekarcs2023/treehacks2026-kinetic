@@ -156,20 +156,27 @@ async def _run_coaching_intelligence():
             else:
                 _consecutive_declining = 0
 
+            # Inject coaching context into OpenAI voice (via session.update — no conversation pollution)
+            if openai_voice and openai_voice.is_connected:
+                try:
+                    await openai_voice.inject_coaching_context(data_block)
+                except Exception:
+                    pass
+
             if check_count == 1:
-                # Inject session memory into OpenAI voice for personalized coaching
+                # Set skill + session memory on first check
                 if openai_voice and openai_voice.is_connected:
+                    openai_voice.set_skill(session.skill_name)
                     try:
                         history = _data_collector.get_last_session_summary(session.skill_name)
                         if history:
                             memory_text = (
-                                f"[SESSION HISTORY] Last time on {history['skill']}: "
+                                f"Last time on {history['skill']}: "
                                 f"{history['total_reps']} reps, avg {history['avg_score']}/100, "
                                 f"best {history['best_score']}/100. "
-                                f"Top issues: {', '.join(history['top_corrections']) if history['top_corrections'] else 'none'}. "
-                                f"{'Improving over time!' if history.get('improving') else 'Needs work on consistency.'}"
+                                f"Top issues: {', '.join(history['top_corrections']) if history['top_corrections'] else 'none'}."
                             )
-                            await openai_voice.inject_coaching_context(memory_text)
+                            openai_voice.set_session_history(memory_text)
                     except Exception:
                         pass
                 prompt = (
@@ -219,17 +226,24 @@ async def _run_coaching_intelligence():
             
             response = await agent.send_message(prompt)
             
-            # Clean response — extract only the coaching line
+            # Clean response — extract only the spoken coaching line
             if response:
-                # Remove any reasoning prefixes Claude might add
                 speech_text = response.strip()
-                for prefix in ["Here's", "Sure,", "Okay,", "I'll", "Let me", "Based on"]:
-                    if speech_text.startswith(prefix) and ":" in speech_text[:60]:
+                # Remove reasoning prefixes Claude adds
+                for prefix in ["Here's", "Sure,", "Okay,", "I'll", "Let me", "Based on", "I can see", "Looking at", "After analyzing"]:
+                    if speech_text.startswith(prefix) and ":" in speech_text[:80]:
                         speech_text = speech_text.split(":", 1)[1].strip()
+                # If still has reasoning (multiple sentences with meta-talk), take the last sentence
+                sentences = [s.strip() for s in speech_text.replace('!', '.').split('.') if s.strip()]
+                # Filter out meta-sentences (about tools, analysis, etc)
+                coaching_sentences = [s for s in sentences if not any(w in s.lower() for w in ['tool', 'analyze', 'technical', 'i\'ll', 'let me', 'i can', 'i will', 'experiencing'])]
+                if coaching_sentences:
+                    # Take last 1-2 coaching sentences
+                    speech_text = '. '.join(coaching_sentences[-2:]) + '.'
                 # Remove quotes if wrapped
                 speech_text = speech_text.strip('"').strip("'")
-                # Limit length
-                speech_text = speech_text[:180]
+                # Limit length (generous — GPT-4o will speak it naturally)
+                speech_text = speech_text[:300]
                 
                 if speech_text and len(speech_text) > 5:
                     print(f"[Agent] Coach says: {speech_text}")

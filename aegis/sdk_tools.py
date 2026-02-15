@@ -100,6 +100,13 @@ async def get_hand_landmarks(args: dict[str, Any]) -> dict[str, Any]:
     return _text_result(mcp_server.get_hand_landmarks())
 
 
+@tool("get_dgx_wholebody",
+      "Get 133 whole-body keypoints from NVIDIA DGX Spark GPU (body+hands+face). Higher accuracy than local MediaPipe.",
+      {})
+async def get_dgx_wholebody(args: dict[str, Any]) -> dict[str, Any]:
+    return _text_result(mcp_server.get_dgx_wholebody())
+
+
 @tool("check_body_alignment",
       "Check body alignment for an optional exercise context.",
       {"track_id": int, "exercise": str})
@@ -422,7 +429,7 @@ ALL_TOOLS = [
     get_spatial_state, get_spatial_summary, get_person_detail,
     get_scene_changes, get_objects_in_scene, count_objects,
     # Pose
-    analyze_posture, get_pose_landmarks, get_hand_landmarks, check_body_alignment,
+    analyze_posture, get_pose_landmarks, get_hand_landmarks, get_dgx_wholebody, check_body_alignment,
     # Activity
     get_activity_timeline, get_time_in_activity, get_session_stats,
     # Zones
@@ -473,7 +480,8 @@ PERCEPTION_TOOL_NAMES = [
     "mcp__aegis__get_person_detail", "mcp__aegis__get_scene_changes",
     "mcp__aegis__get_objects_in_scene", "mcp__aegis__count_objects",
     "mcp__aegis__analyze_posture", "mcp__aegis__get_pose_landmarks",
-    "mcp__aegis__get_hand_landmarks", "mcp__aegis__check_body_alignment",
+    "mcp__aegis__get_hand_landmarks", "mcp__aegis__get_dgx_wholebody",
+    "mcp__aegis__check_body_alignment",
     "mcp__aegis__get_activity_timeline",
 ]
 

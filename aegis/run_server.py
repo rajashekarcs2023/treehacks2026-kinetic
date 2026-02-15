@@ -9,12 +9,14 @@ Modes:
 """
 
 import argparse
+import os
 import uvicorn
 
 from aegis import config
 from aegis.spatial_engine import SpatialEngine
 from aegis.sdk_agent import AegisSDKAgent
 from aegis.gemini_bridge import GeminiBridge
+from aegis.dgx_client import DGXClient
 import aegis.server as server_module
 from aegis.server import app
 import aegis.mcp_server as mcp_module
@@ -32,6 +34,8 @@ def main():
                         help=f"Server host (default {config.SERVER_HOST})")
     parser.add_argument("--goal", type=str, default=None,
                         help="Set initial goal by ID (e.g. desk_watch, posture_coach)")
+    parser.add_argument("--dgx", type=str, default=None,
+                        help="DGX Spark URL for RTMPose inference (e.g. http://gx10-eb94:8080)")
     args = parser.parse_args()
 
     source = "camera" if args.camera else "external"
@@ -44,7 +48,9 @@ def main():
     print(f"  Dashboard:  http://{args.host}:{args.port}/dashboard")
     print(f"  Agent:      {'✗ disabled' if args.no_agent else '✓ Claude Agent SDK (3 sub-agents)'}")
     print(f"  Voice:      {'✓ Gemini Live (' + config.GEMINI_VOICE + ')' if config.GEMINI_API_KEY else '✗ no GEMINI_API_KEY'}")
-    print(f"  MCP:        ✓ aegis (40 tools via SDK MCP server)")
+    dgx_url = args.dgx or os.environ.get("DGX_URL", "")
+    print(f"  DGX:        {'✓ ' + dgx_url if dgx_url else '✗ disabled (use --dgx URL)'}")
+    print(f"  MCP:        ✓ aegis (45 tools via SDK MCP server)")
     print("=" * 60)
     print()
 
@@ -78,9 +84,17 @@ def main():
     else:
         print("[Voice] No GEMINI_API_KEY — voice disabled")
 
+    # Initialize DGX Spark client (RTMPose-WholeBody on GPU)
+    dgx_client = None
+    if dgx_url:
+        dgx_client = DGXClient(base_url=dgx_url)
+        server_module.dgx_client = dgx_client
+        print(f"[DGX] Client configured for {dgx_url}")
+        print(f"[DGX] Will check connectivity on first request")
+
     # Initialize MCP server with shared state
-    mcp_module.init(engine=engine, telegram_sender=None, agent=agent)
-    print(f"[MCP] aegis-spatial initialized (25 tools)")
+    mcp_module.init(engine=engine, telegram_sender=None, agent=agent, dgx_client=dgx_client)
+    print(f"[MCP] aegis-spatial initialized (45 tools)")
 
     print(f"[Server] Starting on {args.host}:{args.port}")
     print()

@@ -73,6 +73,7 @@ app.add_middleware(
 engine = None  # SpatialEngine instance (set externally)
 agent = None   # AegisSDKAgent instance (set externally)
 gemini_bridge = None  # GeminiBridge instance (set externally)
+dgx_client = None     # DGXClient instance (set externally)
 
 # ── Coaching state ────────────────────────────────────────────────────
 _reference_store = ReferenceStore()
@@ -1368,6 +1369,20 @@ async def ws_audio(websocket: WebSocket):
             await send_task
         except asyncio.CancelledError:
             pass
+
+
+@app.get("/api/dgx/status")
+async def dgx_status():
+    """NVIDIA DGX Spark inference server status."""
+    if dgx_client is None:
+        return {"available": False, "note": "Start server with --dgx URL to enable"}
+    health = await dgx_client.check_health()
+    return {
+        "available": health,
+        "stats": dgx_client.get_stats(),
+        "model": "RTMPose-WholeBody (133 keypoints)",
+        "gpu": "NVIDIA GB10",
+    }
 
 
 @app.get("/api/voice/status")

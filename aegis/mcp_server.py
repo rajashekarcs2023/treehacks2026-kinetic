@@ -73,12 +73,15 @@ _recording_session: RecordingSession | None = None
 _coaching_session: CoachingSession | None = None
 
 
-def init(engine, telegram_sender=None, agent=None):
+_dgx_client = None
+
+def init(engine, telegram_sender=None, agent=None, dgx_client=None):
     """Initialize shared state. Called once at startup."""
-    global _engine, _telegram_sender, _agent_ref, _session_start
+    global _engine, _telegram_sender, _agent_ref, _session_start, _dgx_client
     _engine = engine
     _telegram_sender = telegram_sender
     _agent_ref = agent
+    _dgx_client = dgx_client
     _session_start = time.time()
 
 
@@ -371,6 +374,58 @@ def get_hand_landmarks() -> dict:
         })
 
     return {"hands_detected": len(result), "hands": result}
+
+
+@mcp.tool(tags={"pose"}, annotations={"readOnlyHint": True})
+def get_dgx_wholebody() -> dict:
+    """Get 133 whole-body keypoints from NVIDIA DGX Spark GPU inference.
+
+    Returns body (17) + feet (6) + hands (42) + face (68) = 133 keypoints.
+    Uses RTMPose-WholeBody running on DGX Spark with NVIDIA GB10 GPU.
+    Falls back gracefully if DGX is not available.
+    Much higher accuracy than local MediaPipe for hand/face tracking.
+    """
+    _inc_tool_calls()
+    if _dgx_client is None:
+        return {"error": "DGX client not configured. Start server with --dgx URL"}
+    if _engine is None:
+        return {"error": "Engine not initialized"}
+
+    import asyncio
+    frame = _engine._frame
+    if frame is None:
+        return {"error": "No frame available"}
+
+    # Run async predict synchronously
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = pool.submit(asyncio.run, _dgx_client.predict(frame)).result()
+        else:
+            result = asyncio.run(_dgx_client.predict(frame))
+    except Exception as e:
+        return {"error": f"DGX inference failed: {e}", "fallback": "Use get_hand_landmarks and get_pose_landmarks for local inference"}
+
+    if result is None:
+        return {
+            "dgx_available": False,
+            "note": "DGX not reachable — use local get_hand_landmarks + get_pose_landmarks instead",
+            "stats": _dgx_client.get_stats(),
+        }
+
+    return {
+        "dgx_available": True,
+        "total_keypoints": result.get("total_keypoints", 0),
+        "inference_ms": result.get("inference_ms", 0),
+        "round_trip_ms": result.get("round_trip_ms", 0),
+        "gpu": result.get("gpu", False),
+        "body": result.get("body", []),
+        "feet": result.get("feet", []),
+        "hands": result.get("hands", {}),
+        "face": result.get("face", []),
+    }
 
 
 @mcp.tool(tags={"pose"}, annotations={"readOnlyHint": True})

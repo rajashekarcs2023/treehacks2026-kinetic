@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScoreRing } from "@/components/score-ring";
-import { createCoachingWS, createVideoWS, startCoaching, stopCoaching, ingestYouTube } from "@/lib/api";
+import { createCoachingWS, createVideoWS, createAudioWS, startCoaching, stopCoaching, ingestYouTube } from "@/lib/api";
 import {
   Video,
   VideoOff,
@@ -168,6 +168,9 @@ function CoachContent() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const videoWsRef = useRef<WebSocket | null>(null);
+  const audioWsRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
   const receivingRealData = useRef(false);
 
   // Timer
@@ -416,6 +419,143 @@ function CoachContent() {
       // backend not available
     }
   }, [isCoaching, cameraActive]);
+
+  // Gemini Live voice coaching — mic capture + audio playback
+  useEffect(() => {
+    if (!isCoaching || !micActive) {
+      // Cleanup when mic turned off
+      if (audioWsRef.current && audioWsRef.current.readyState <= 1) {
+        audioWsRef.current.close();
+      }
+      audioWsRef.current = null;
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+      }
+      return;
+    }
+
+    let audioWs: WebSocket;
+    let audioCtx: AudioContext;
+    let scriptNode: ScriptProcessorNode | null = null;
+    let micSource: MediaStreamAudioSourceNode | null = null;
+    let cancelled = false;
+
+    const setup = async () => {
+      try {
+        // Get mic stream
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        micStreamRef.current = stream;
+
+        // Audio context for mic processing
+        audioCtx = new AudioContext({ sampleRate: 16000 });
+        audioContextRef.current = audioCtx;
+        micSource = audioCtx.createMediaStreamSource(stream);
+
+        // ScriptProcessor to get raw PCM (deprecated but widely supported)
+        scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+        scriptNode.onaudioprocess = (e) => {
+          if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+          const input = e.inputBuffer.getChannelData(0);
+          // Convert float32 → int16 PCM
+          const pcm16 = new Int16Array(input.length);
+          for (let i = 0; i < input.length; i++) {
+            const s = Math.max(-1, Math.min(1, input[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          // Send as base64
+          const bytes = new Uint8Array(pcm16.buffer);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          const b64 = btoa(binary);
+          audioWs.send(JSON.stringify({ type: "audio", data: b64 }));
+        };
+        micSource.connect(scriptNode);
+        scriptNode.connect(audioCtx.destination);
+
+        // Connect audio WebSocket
+        audioWs = createAudioWS();
+        audioWsRef.current = audioWs;
+
+        // Playback context for Gemini audio output (24kHz)
+        const playbackCtx = new AudioContext({ sampleRate: 24000 });
+
+        audioWs.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "audio" && msg.data) {
+              // Decode base64 PCM → play
+              const raw = atob(msg.data);
+              const bytes = new Uint8Array(raw.length);
+              for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+              const pcm16 = new Int16Array(bytes.buffer);
+              const float32 = new Float32Array(pcm16.length);
+              for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
+
+              const buffer = playbackCtx.createBuffer(1, float32.length, 24000);
+              buffer.getChannelData(0).set(float32);
+              const source = playbackCtx.createBufferSource();
+              source.buffer = buffer;
+              source.connect(playbackCtx.destination);
+              source.start();
+            }
+          } catch {
+            // ignore malformed
+          }
+        };
+
+        audioWs.onopen = () => {
+          console.log("[Kinetic] Audio WS connected to Gemini Live");
+          // Send initial coaching context
+          audioWs.send(JSON.stringify({
+            type: "text",
+            data: `You are now a real-time AI skill coach. The user is practicing "${selectedSkill}". 
+Watch their movement data and give short, encouraging voice feedback. 
+Keep responses to 1-2 sentences. Be specific about body positioning.
+When they ask questions, answer helpfully. Focus on form corrections.`,
+          }));
+        };
+
+        audioWs.onerror = () => console.warn("[Kinetic] Audio WS error");
+        audioWs.onclose = () => { audioWsRef.current = null; };
+
+      } catch (err) {
+        console.error("[Kinetic] Mic setup failed:", err);
+      }
+    };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      if (scriptNode) { scriptNode.disconnect(); scriptNode.onaudioprocess = null; }
+      if (micSource) micSource.disconnect();
+      if (audioWs && audioWs.readyState <= 1) audioWs.close();
+      audioWsRef.current = null;
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+      }
+    };
+  }, [isCoaching, micActive, selectedSkill]);
+
+  // Send coaching context to Gemini periodically so it can give informed voice feedback
+  useEffect(() => {
+    if (!isCoaching || !micActive || !audioWsRef.current) return;
+    const interval = setInterval(() => {
+      const ws = audioWsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const context = {
+        type: "text",
+        data: `[COACHING UPDATE] Score: ${Math.round(currentScore)}/100, Reps: ${repCount}, Phase: ${phase}, Avg: ${Math.round(avgScore)}, Best: ${Math.round(bestScore)}. ${currentFeedback ? `Current issue: ${currentFeedback}` : "Form looks good."}`,
+      };
+      ws.send(JSON.stringify(context));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isCoaching, micActive, currentScore, repCount, phase, avgScore, bestScore, currentFeedback]);
 
   // Camera setup
   const startCamera = useCallback(async () => {

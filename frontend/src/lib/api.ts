@@ -173,6 +173,11 @@ export function createVideoWS(): WebSocket {
   return new WebSocket(`${wsBase}/ws/video`);
 }
 
+export function createAudioWS(): WebSocket {
+  const wsBase = API_BASE.replace(/^http/, "ws");
+  return new WebSocket(`${wsBase}/ws/audio`);
+}
+
 // ── Types ──────────────────────────────────────────────────────────
 export interface SpatialState {
   persons: PersonState[];

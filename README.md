@@ -14,8 +14,11 @@ Kinetic is a unified platform for **physical movement intelligence** — AI skil
 🌐 [Live Frontend](https://frontend-qh6de6ixx-rajashekarvs-projects.vercel.app)
 
 **Infrastructure:**
-- 🖥️ **DGX Spark**: 17-keypoint real-time pose on NVIDIA GB10 Superchip
-- 🚀 **Modal A100**: HY-Motion 1.0-Lite text-to-3D motion generation - **Endpoint**: `POST https://rajashekarvennavelli--aegis-motion-generate-endpoint.modal.run`
+- 🖥️ **DGX Spark (Edge)**: Real-time pose, fall detection, monitoring — all on-device, zero cloud dependency
+
+> ⚡ **Why both edge and cloud?** DGX Spark's Blackwell GPU doesn't have PyTorch/CUDA wheels for ARM yet — so safety-critical inference (pose, falls) runs on-device at sub-50ms, while one-time heavy generation (0.46B params) offloads to A100. Result is cached locally; after that, coaching is 100% edge.
+
+- 🚀 **Modal A100 (Cloud)**: HY-Motion 1.0-Lite text-to-3D motion generation — **Endpoint**: `POST https://rajashekarvennavelli--aegis-motion-generate-endpoint.modal.run`
 - 🤖 **46 MCP Tools**: Full stack exposed via HTTP for external AI agents (Poke)
 
 ---

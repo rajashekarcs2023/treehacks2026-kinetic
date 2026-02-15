@@ -193,6 +193,34 @@ export async function closeRoom(code: string) {
   return fetchAPI<{ leaderboard: unknown[]; agent_verdict?: string }>(`/api/rooms/${code}/close`, { method: "POST" });
 }
 
+// ── AI Expert Generation ─────────────────────────────────────────
+export interface AIExpertResult {
+  skill: string;
+  source: string;
+  frame_count: number;
+  phases: string[];
+  coaching_cues: string[];
+  keyframes: number[][][]; // [frame][joint][x,y,vis]
+  generation_ms: number;
+  model: string;
+  error?: string;
+}
+
+export async function generateAIExpert(skillDescription: string, useDgx = false): Promise<AIExpertResult> {
+  return fetchAPI<AIExpertResult>("/api/ai-expert/generate", {
+    method: "POST",
+    body: JSON.stringify({ skill_description: skillDescription, use_dgx: useDgx }),
+  });
+}
+
+// ── Monitoring / Goals ───────────────────────────────────────────
+export async function sendAlertToTelegram(message: string) {
+  return fetchAPI<{ status: string }>("/api/alert", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
 // ── WebSocket helpers ──────────────────────────────────────────────
 export function createCoachingWS(): WebSocket {
   const wsBase = API_BASE.replace(/^http/, "ws");

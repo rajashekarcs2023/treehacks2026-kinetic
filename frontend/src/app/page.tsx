@@ -23,6 +23,10 @@ import {
   Globe,
   FileText,
   Layers,
+  Eye,
+  Shield,
+  Stethoscope,
+  Activity,
 } from "lucide-react";
 
 interface SessionSummary {
@@ -110,7 +114,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{greeting}</h1>
             <p className="text-muted-foreground mt-1">
-              Master any physical skill with AI — rehab recovery, yoga, sign language, and beyond.
+              Physical Movement Intelligence — coaching, monitoring, rehab, and safety in real-time.
             </p>
           </div>
         </div>
@@ -173,23 +177,80 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* New Session Hero CTA */}
-      <Link href="/coach">
-        <Card className="group bg-gradient-to-r from-primary/5 via-card to-purple-500/5 border-primary/20 hover:border-primary/40 transition-all cursor-pointer">
-          <CardContent className="p-6 flex items-center gap-5">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/15 group-hover:bg-primary/20 transition-colors">
-              <Video className="h-7 w-7 text-primary" />
-            </div>
-            <div className="flex-1">
-              <p className="text-lg font-semibold">Start a New Session</p>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Learn from an expert video, describe a skill, or upload a guide — AI coaches your form live
-              </p>
-            </div>
-            <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-          </CardContent>
-        </Card>
-      </Link>
+      {/* ── 4 Intelligence Modes ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Mode 1: AI Skill Coach */}
+        <Link href="/coach">
+          <Card className="group h-full bg-gradient-to-br from-primary/10 to-purple-500/5 border-primary/30 hover:border-primary/60 hover:shadow-lg hover:shadow-primary/10 transition-all cursor-pointer">
+            <CardContent className="p-5 flex flex-col items-center text-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/20 group-hover:bg-primary/30 transition-colors">
+                <Video className="h-7 w-7 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">AI Skill Coach</p>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-tight">
+                  Learn any movement from video, text, or AI-generated expert motion
+                </p>
+              </div>
+              <Badge className="bg-primary/15 text-primary text-[10px] border-0">Voice + Skeleton</Badge>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* Mode 2: Physical Therapy */}
+        <Link href="/coach?mode=pt">
+          <Card className="group h-full bg-gradient-to-br from-emerald-500/10 to-green-500/5 border-emerald-500/30 hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-500/10 transition-all cursor-pointer">
+            <CardContent className="p-5 flex flex-col items-center text-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/20 group-hover:bg-emerald-500/30 transition-colors">
+                <Stethoscope className="h-7 w-7 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">Physical Therapy</p>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-tight">
+                  Guided rehab — knee, shoulder, hip, ankle, post-surgery recovery
+                </p>
+              </div>
+              <Badge className="bg-emerald-500/15 text-emerald-400 text-[10px] border-0">PT Rehab</Badge>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* Mode 3: Goal-Based Intelligence */}
+        <Link href="/monitor">
+          <Card className="group h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/5 border-blue-500/30 hover:border-blue-500/60 hover:shadow-lg hover:shadow-blue-500/10 transition-all cursor-pointer">
+            <CardContent className="p-5 flex flex-col items-center text-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/20 group-hover:bg-blue-500/30 transition-colors">
+                <Eye className="h-7 w-7 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">Goal-Based Intelligence</p>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-tight">
+                  Give AI a goal — it watches, reasons, and acts autonomously
+                </p>
+              </div>
+              <Badge className="bg-blue-500/15 text-blue-400 text-[10px] border-0">Autonomous Agent</Badge>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* Mode 4: Clinical Patient Safety */}
+        <Link href="/monitor?goal=elderly_care">
+          <Card className="group h-full bg-gradient-to-br from-red-500/10 to-rose-500/5 border-red-500/30 hover:border-red-500/60 hover:shadow-lg hover:shadow-red-500/10 transition-all cursor-pointer">
+            <CardContent className="p-5 flex flex-col items-center text-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/20 group-hover:bg-red-500/30 transition-colors">
+                <Shield className="h-7 w-7 text-red-500" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">Clinical Patient Safety</p>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-tight">
+                  Hospital fall detection, bed exit alerts, nurse Telegram notifications
+                </p>
+              </div>
+              <Badge className="bg-red-500/15 text-red-400 text-[10px] border-0">Hospital Grade</Badge>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left column */}

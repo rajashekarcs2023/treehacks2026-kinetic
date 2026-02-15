@@ -114,15 +114,15 @@ export default function ProductPage() {
               <Zap className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold tracking-tight">Kinetic AI</h1>
-              <p className="text-muted-foreground">Real-Time AI Skill Coach with Expert Motion Transfer</p>
+              <h1 className="text-4xl font-bold tracking-tight">Kinetic</h1>
+              <p className="text-muted-foreground">Real-Time Physical Movement Intelligence</p>
             </div>
           </div>
 
           <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-            Learn any physical skill from any expert — in real-time, through voice.
-            No expert video needed. Just describe the skill and Kinetic generates
-            the reference using state-of-the-art 3D motion generation.
+            A cognitive layer for understanding, improving, and preserving human physical capability.
+            From skill coaching to fall detection to PT rehab — Kinetic perceives, reasons about,
+            and enhances human movement in real-time.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -162,6 +162,29 @@ export default function ProductPage() {
                 <stat.icon className="h-4 w-4 text-muted-foreground mb-2" />
                 <div className="text-2xl font-bold">{stat.value}</div>
                 <div className="text-xs text-muted-foreground">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 4 Intelligence Modes */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-12">
+          <h2 className="text-2xl font-bold mb-2">4 Intelligence Modes</h2>
+          <p className="text-muted-foreground mb-8">One platform, four ways to enhance human physical capability.</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { icon: "\uD83C\uDFAF", title: "AI Skill Coach", desc: "Learn any movement from video, text, or AI-generated expert motion with real-time voice feedback", color: "border-primary/30 bg-primary/5" },
+              { icon: "\uD83C\uDFE5", title: "Physical Therapy", desc: "Guided rehab exercises with safety boundaries, ROM tracking, and progress monitoring", color: "border-emerald-500/30 bg-emerald-500/5" },
+              { icon: "\uD83D\uDC41\uFE0F", title: "Autonomous Monitor", desc: "Goal-based spatial AI with fall detection, desk watch, and focus tracking \u2192 Telegram alerts", color: "border-red-500/30 bg-red-500/5" },
+              { icon: "\uD83C\uDFE8", title: "Hospital Monitor", desc: "Patient fall detection, inactivity alerts, and autonomous caregiver notifications with photos", color: "border-amber-500/30 bg-amber-500/5" },
+            ].map((mode) => (
+              <div key={mode.title} className={`rounded-xl border ${mode.color} p-5 space-y-2`}>
+                <span className="text-2xl">{mode.icon}</span>
+                <h3 className="font-semibold text-sm">{mode.title}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">{mode.desc}</p>
               </div>
             ))}
           </div>
@@ -318,7 +341,7 @@ export default function ProductPage() {
             <div className="rounded-xl border border-border bg-card p-8 space-y-6">
               <div className="text-center mb-8">
                 <h3 className="text-xl font-bold mb-2">
-                  Kinetic: Real-Time AI Skill Coaching Through Expert Motion Transfer and Multi-Modal Feedback
+                  Kinetic: A Cognitive Layer for Real-Time Physical Movement Intelligence
                 </h3>
                 <p className="text-sm text-muted-foreground">TreeHacks 2026, Stanford University, Stanford, CA</p>
               </div>
@@ -326,43 +349,28 @@ export default function ProductPage() {
               <div>
                 <h4 className="font-semibold text-primary mb-2">Abstract</h4>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  We present Kinetic, a real-time AI coaching system that enables users to learn any physical skill
-                  without requiring expert video demonstrations. Kinetic introduces a 4-tier expert generation pipeline
-                  that synthesizes biomechanically accurate reference poses from natural language descriptions, leveraging
-                  canonical biomechanical templates, large language model semantic mapping (Claude Sonnet 4), and
-                  state-of-the-art text-to-3D motion generation (HY-Motion 1.0-Lite on NVIDIA A100). Our system
-                  evaluates user form using a novel triple-metric scoring engine combining Gaussian joint angle comparison,
-                  cosine spatial similarity, and COCO Object Keypoint Similarity (OKS). Real-time feedback is delivered
-                  through conversational voice coaching (GPT-4o Realtime API) with 3-layer interruption handling. Edge AI
-                  inference on NVIDIA DGX Spark&apos;s GB10 Superchip provides sub-50ms pose estimation latency. The system
-                  orchestrates 44 MCP tools across 12 categories through the Anthropic Claude Agent SDK with 3 sub-agents.
-                  Kinetic demonstrates that AI-driven coaching can match the quality of human instruction while being
-                  accessible to anyone with a camera and microphone.
+                  We present Kinetic, the first real-time physical movement intelligence system that perceives,
+                  reasons about, and enhances human physical capability across multiple domains: skill coaching,
+                  physical therapy rehabilitation, autonomous fall detection, and spatial monitoring. Kinetic
+                  introduces a 4-tier expert generation pipeline, a triple-metric scoring engine (Gaussian joint
+                  angles + cosine spatial similarity + COCO OKS), voice-first coaching via GPT-4o Realtime, and
+                  autonomous monitoring with Telegram alerts. Edge AI on NVIDIA DGX Spark provides sub-50ms latency.
+                  44 MCP tools orchestrated through the Anthropic Claude Agent SDK with 3 sub-agents.
                 </p>
               </div>
 
               <div>
                 <h4 className="font-semibold text-primary mb-2">1. Introduction &amp; Motivation</h4>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Physical skill learning has remained fundamentally unchanged for decades: learners either hire expensive
-                  personal coaches ($80–200/hour), follow static video tutorials that cannot observe their form, or use
-                  fitness apps that count reps without understanding biomechanics. An estimated 1.7 billion people worldwide
-                  desire to learn physical skills — from gym exercises to martial arts to dance — yet lack access to
-                  quality, personalized instruction.
+                  AI has transformed cognitive work. Yet human physical capability remains unaugmented. Movement
+                  literacy, rehabilitation, injury prevention, and safety monitoring still depend on expensive
+                  human experts or crude apps. 1.7 billion people want to learn physical skills. 55 million
+                  elderly Americans need fall monitoring. Millions more need accessible PT rehab.
                 </p>
                 <p className="text-sm text-muted-foreground leading-relaxed mt-3">
-                  Recent advances in computer vision (MediaPipe, YOLOv8), large language models (Claude, GPT-4o),
-                  and motion generation (HY-Motion 1.0) create an unprecedented opportunity to build AI coaching systems
-                  that see, understand, and communicate corrections in real-time. However, existing approaches suffer
-                  from three key limitations: (1) they require pre-recorded expert demonstrations, limiting skill
-                  coverage; (2) they use simplistic single-metric scoring that fails to capture the nuances of
-                  human movement; and (3) they lack natural communication interfaces, relying on visual overlays
-                  that users cannot observe during active movement.
-                </p>
-                <p className="text-sm text-muted-foreground leading-relaxed mt-3">
-                  Kinetic addresses all three limitations. Our 4-tier expert generation pipeline eliminates the need
-                  for demonstration videos. Our triple-metric scoring engine provides robust, multi-dimensional form
-                  evaluation. And our voice-first interface delivers corrections naturally during active movement.
+                  Kinetic is the first system to unify skill coaching, physical therapy, autonomous monitoring,
+                  and hospital safety into a single Physical Movement Intelligence platform — powered by the same
+                  CV + AI stack across all four modes.
                 </p>
               </div>
 
@@ -404,7 +412,17 @@ export default function ProductPage() {
               </div>
 
               <div>
-                <h4 className="font-semibold text-primary mb-2">5. Edge AI &amp; Latency</h4>
+                <h4 className="font-semibold text-primary mb-2">5. Autonomous Monitoring</h4>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  In monitoring mode, Kinetic accepts a goal (fall detection, desk security, posture watch) and
+                  runs a continuous perception→reasoning→action loop. Falls are detected via activity classification
+                  with temporal smoothing. Claude evaluates alert triggers. Telegram delivers photo alerts to
+                  caregivers instantly. The bot is bidirectional: caregivers send /status, /goals, /photo commands.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-semibold text-primary mb-2">6. Edge AI &amp; Latency</h4>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   Real-time coaching demands sub-100ms feedback latency. We achieve this through edge AI inference
                   on the NVIDIA DGX Spark&apos;s GB10 Superchip, running YOLOv8n-pose for 17-keypoint estimation
@@ -414,14 +432,12 @@ export default function ProductPage() {
               </div>
 
               <div>
-                <h4 className="font-semibold text-primary mb-2">6. Conclusion</h4>
+                <h4 className="font-semibold text-primary mb-2">7. Conclusion</h4>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Kinetic demonstrates that real-time, voice-driven skill coaching is achievable through the
-                  combination of edge AI inference, multi-agent LLM orchestration, and state-of-the-art motion
-                  generation. By eliminating the requirement for expert video demonstrations, Kinetic makes
-                  high-quality physical coaching accessible to anyone with a camera. Future work will explore
-                  wearable AR integration, multi-camera 3D reconstruction, and personalized coaching models
-                  fine-tuned on individual movement patterns.
+                  Kinetic demonstrates that the same CV + AI stack that coaches a squat can detect a fall,
+                  guide PT rehab, and monitor a hospital room. By unifying four intelligence modes into
+                  one platform, Kinetic brings to physical capability what AI has already brought to
+                  cognitive work. AI has transformed how we think. Kinetic transforms how we move.
                 </p>
               </div>
             </div>
@@ -433,10 +449,10 @@ export default function ProductPage() {
       <section className="py-12">
         <div className="mx-auto max-w-6xl px-6 text-center">
           <p className="text-lg font-medium">
-            Solo-built in 20 hours. 17,000+ lines. 10 models. 6 infrastructure pillars.
+            AI has transformed cognitive work. Kinetic brings that transformation to physical capability.
           </p>
           <p className="text-muted-foreground mt-2">
-            Built at TreeHacks 2026 🌲 — Stanford University
+            Solo-built in 20 hours at TreeHacks 2026 🌲 Stanford University · 17,000+ lines · 10 AI models
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             {["Anthropic", "OpenAI", "NVIDIA", "Modal", "Tencent", "Google"].map((company) => (

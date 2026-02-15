@@ -6,7 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScoreRing } from "@/components/score-ring";
-import { createCoachingWS, createVideoWS, createAudioWS, startCoaching, stopCoaching, ingestYouTube, createRoom, joinRoom, getRoomLeaderboard } from "@/lib/api";
+import { createCoachingWS, createVideoWS, createAudioWS, startCoaching, stopCoaching, ingestYouTube, createRoom, joinRoom, getRoomLeaderboard, generateAIExpert, type AIExpertResult } from "@/lib/api";
+import SkeletonPlayer from "@/components/skeleton-player";
 import {
   Video,
   VideoOff,
@@ -61,6 +62,15 @@ const SKILL_CATEGORIES: Record<string, string[]> = {
   "Music & Performance": ["Guitar Posture", "Piano Hands", "Violin Bow", "Conductor Beat"],
 };
 
+const PT_CATEGORIES: Record<string, string[]> = {
+  "Knee Rehabilitation": ["Knee Extension", "Quad Sets", "Hamstring Curl", "Straight Leg Raise", "Wall Sit"],
+  "Shoulder Recovery": ["Shoulder Raise", "Pendulum Swing", "External Rotation", "Wall Climb", "Shoulder Flexion"],
+  "Hip & Core": ["Hip Flexion", "Glute Bridge", "Clamshell", "Hip Abduction", "Pelvic Tilt"],
+  "Ankle & Balance": ["Ankle Mobility", "Heel Raises", "Toe Raises", "Single Leg Balance", "Ankle Circles"],
+  "Post-Surgery General": ["Sit-to-Stand", "Marching in Place", "Side Step", "Arm Raise", "Deep Breathing"],
+  "Elderly Mobility": ["Chair Stand", "Heel-to-Toe Walk", "Standing Balance", "Seated Leg Lift", "Wall Push-up"],
+};
+
 const ALL_SKILLS = Object.values(SKILL_CATEGORIES).flat();
 
 export default function CoachPage() {
@@ -73,8 +83,11 @@ export default function CoachPage() {
 
 function CoachContent() {
   const searchParams = useSearchParams();
-  const initialSkill = searchParams.get("skill") || "Warrior Pose";
-  const initialMode = searchParams.get("mode") as "video" | "describe" | "document" | null;
+  const urlMode = searchParams.get("mode");
+  const isPTMode = urlMode === "pt";
+  const initialSkill = searchParams.get("skill") || (isPTMode ? "Knee Extension" : "Warrior Pose");
+  const initialMode = (urlMode === "pt" ? null : urlMode) as "video" | "describe" | "document" | null;
+  const activeCategories = isPTMode ? PT_CATEGORIES : SKILL_CATEGORIES;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -108,6 +121,8 @@ function CoachContent() {
 
   // Describe-it state
   const [skillDescription, setSkillDescription] = useState("");
+  const [isGeneratingExpert, setIsGeneratingExpert] = useState(false);
+  const [expertResult, setExpertResult] = useState<AIExpertResult | null>(null);
 
   // Document state
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
@@ -719,8 +734,8 @@ function CoachContent() {
           <div className="w-full max-w-3xl space-y-8 my-auto">
             {/* Header */}
             <div className="text-center">
-              <h1 className="text-3xl font-bold mb-2">AI Skill Coach</h1>
-              <p className="text-muted-foreground">Master any physical skill with AI coaching — rehab, yoga, dance, and beyond</p>
+              <h1 className="text-3xl font-bold mb-2">{isPTMode ? "Physical Therapy Rehab" : "Physical Movement Intelligence"}</h1>
+              <p className="text-muted-foreground">{isPTMode ? "Guided rehabilitation — safe ROM tracking, rep counting, and voice coaching for recovery" : "AI skill coaching — learn any movement through voice, skeleton overlay, and real-time scoring"}</p>
             </div>
 
             {/* ── Step 1: Pick a Skill ── */}
@@ -730,7 +745,7 @@ function CoachContent() {
                 <h2 className="text-lg font-semibold">Pick a Skill</h2>
               </div>
               <div className="space-y-3 max-h-[35vh] overflow-y-auto pr-1">
-                {Object.entries(SKILL_CATEGORIES).map(([category, skills]) => (
+                {Object.entries(activeCategories).map(([category, skills]) => (
                   <div key={category}>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{category}</p>
                     <div className="flex flex-wrap gap-2">
@@ -931,18 +946,53 @@ function CoachContent() {
               {/* ── Expanded: Just Describe It ── */}
               {inputMode === "describe" && (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <p className="text-sm text-muted-foreground">Describe the movement or skill you want to practice. Our AI will generate ideal form targets.</p>
+                  <p className="text-sm text-muted-foreground">Describe any movement. AI generates expert motion on NVIDIA A100 GPU, then coaches you to match it.</p>
                   <textarea
-                    placeholder={`e.g. "I want to practice a proper squat with my feet shoulder-width apart, going below parallel..."`}
+                    placeholder={`e.g. "tai chi cloud hands flowing movement" or "a perfect deep squat with proper form"`}
                     value={skillDescription}
                     onChange={(e) => setSkillDescription(e.target.value)}
                     rows={3}
                     className="w-full px-4 py-3 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
                   />
-                  {skillDescription.length > 10 && (
-                    <div className="flex items-center gap-2 p-2 rounded-lg bg-primary/10">
-                      <Sparkles className="h-4 w-4 text-primary" />
-                      <span className="text-xs text-primary">AI will coach you based on this description</span>
+                  {skillDescription.length > 5 && (
+                    <Button
+                      onClick={async () => {
+                        setIsGeneratingExpert(true);
+                        setExpertResult(null);
+                        try {
+                          const result = await generateAIExpert(skillDescription, false);
+                          if (!result.error) setExpertResult(result);
+                        } catch (err) {
+                          console.error("[Kinetic] Expert generation failed:", err);
+                        } finally {
+                          setIsGeneratingExpert(false);
+                        }
+                      }}
+                      disabled={isGeneratingExpert}
+                      className="w-full gap-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      {isGeneratingExpert ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Generating on A100 GPU...</>
+                      ) : (
+                        <><Sparkles className="h-4 w-4" /> Generate AI Expert Motion</>
+                      )}
+                    </Button>
+                  )}
+                  {expertResult && expertResult.keyframes && expertResult.keyframes.length > 0 && (
+                    <div className="flex flex-col items-center gap-3 pt-2">
+                      <SkeletonPlayer
+                        keyframes={expertResult.keyframes}
+                        source={expertResult.source}
+                        skill={expertResult.skill}
+                        generationMs={expertResult.generation_ms}
+                        model={expertResult.model}
+                        width={280}
+                        height={340}
+                      />
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/20 w-full">
+                        <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                        <span className="text-xs text-green-400">Expert ready — {expertResult.frame_count} frames from {expertResult.source === "modal_hymotion_a100" ? "HY-Motion on NVIDIA A100" : expertResult.source}</span>
+                      </div>
                     </div>
                   )}
                 </div>

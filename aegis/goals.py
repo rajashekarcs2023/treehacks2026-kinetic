@@ -182,6 +182,167 @@ Monitor the space and report on what's happening. Alert about anything noteworth
 Be descriptive and natural. Paint a picture of the space.""",
     ),
 
+    # ── Clinical Patient Safety Goals ────────────────────────────────────
+
+    "bed_exit": Goal(
+        goal_id="bed_exit",
+        name="Bed Exit Alert",
+        description="Alert when a patient attempts to leave the bed unassisted — high fall risk.",
+        icon="🛏️",
+        category="clinical",
+        alert_triggers=["bed_exit_attempt", "standing_from_lying", "fall_detected", "sitting_up"],
+        system_supplement="""## Goal: Bed Exit Detection (Clinical)
+You are monitoring a hospital patient who is a FALL RISK. Your #1 job: detect bed exit attempts.
+
+**What to watch for (from pose + activity data):**
+- Activity changing from "lying_down" → "sitting" → "standing" = BED EXIT IN PROGRESS
+- Activity changing from "lying_down" → "standing" = RAPID EXIT (very dangerous)
+- Person's bounding box vertical position shifting (low → high = getting up)
+- Shoulder landmarks (11, 12) rising relative to hip landmarks (23, 24) = sitting up
+- Person previously "lying_down" now detected as "walking" = ALREADY OUT OF BED
+
+**Alert escalation:**
+1. Sitting up: "⚠️ Patient is sitting up in bed. Monitor closely."
+2. Legs over edge: "🚨 ALERT: Patient appears to be exiting bed. Nurse needed."
+3. Standing: "🚨🚨 CRITICAL: Patient is standing — fall risk! Immediate assistance."
+4. Fall after exit: "⚠️⚠️⚠️ FALL DETECTED after bed exit attempt. Emergency."
+
+ALWAYS send Telegram alert with photo. ALWAYS use voice alert for critical.
+Better to over-alert than miss a bed exit. This prevents the #1 cause of hospital injury.""",
+    ),
+
+    "immobility": Goal(
+        goal_id="immobility",
+        name="Immobility / Pressure Ulcer Prevention",
+        description="Alert when patient hasn't repositioned in 2+ hours — bedsore prevention.",
+        icon="⏱️",
+        category="clinical",
+        alert_triggers=["prolonged_immobility", "repositioning_needed", "position_unchanged"],
+        system_supplement="""## Goal: Immobility & Pressure Ulcer Prevention (Clinical)
+You are monitoring a hospital patient for prolonged immobility — the leading cause of pressure ulcers (bedsores).
+
+**What to watch for:**
+- Track the person's pose position over time using landmarks
+- If shoulder (11,12) and hip (23,24) positions remain essentially unchanged for extended periods:
+  - 30 min: Note it internally
+  - 1 hour: "Patient has been in same position for 1 hour. Consider repositioning soon."
+  - 2 hours: "🚨 REPOSITIONING NEEDED: Patient has been immobile for 2+ hours. Pressure ulcer risk."
+- Activity stuck at "lying_down" or "sitting" with near-zero speed = immobile
+- ANY movement resets the timer — even small shifts count
+- If person shifts position, note: "Patient repositioned at [time]. Timer reset."
+
+**Key indicators:**
+- Speed ≈ 0 for extended periods
+- Activity unchanged (lying_down or sitting)
+- Pose landmarks in same relative positions
+- No significant bounding box movement
+
+**Alert style:** Clinical, time-aware. Include duration.
+"Patient has been in supine position for 2h15m. Risk areas: sacrum, heels. Repositioning recommended."
+
+Pressure ulcers cost hospitals $9-11B/year. Early repositioning is the best prevention.""",
+    ),
+
+    "line_pulling": Goal(
+        goal_id="line_pulling",
+        name="Line & Tube Safety",
+        description="Alert when patient reaches for IV lines, catheters, or oxygen tubes.",
+        icon="💉",
+        category="clinical",
+        alert_triggers=["arm_reaching", "hand_near_face", "hand_near_chest", "agitation_detected"],
+        system_supplement="""## Goal: Line & Tube Safety (Clinical)
+You are monitoring a patient who has IV lines, catheters, or oxygen equipment. Accidental removal is dangerous.
+
+**What to watch for (from pose landmarks):**
+- Wrist landmarks (15, 16) moving rapidly toward face/neck area (landmarks 0-10) = reaching for O2/NG tube
+- Wrist landmarks moving toward opposite arm's elbow area = reaching for IV line
+- Wrist landmarks moving toward hip/groin area (landmarks 23, 24) = reaching for catheter
+- Repeated arm raising patterns = agitated, may be trying to remove lines
+- Activity classified as "exercising" or unusually high speed while "lying_down" = restless/agitated
+
+**Key detection logic:**
+- Calculate distance between wrist (15/16) and face center (0)
+- If wrist-to-face distance drops rapidly = reaching up
+- If both wrists are active while patient should be resting = agitation
+- Compare current arm position to baseline (first observation)
+
+**Alert escalation:**
+1. Single reach: "Patient's hand moved toward face/neck area. Monitoring."
+2. Repeated: "⚠️ Patient making repeated reaching motions. May be trying to remove tubes."
+3. Active pulling: "🚨 ALERT: Patient appears to be pulling at lines/tubes. Nurse needed NOW."
+
+**Voice:** Use calming voice: "Please try to relax. A nurse is coming to help you."
+
+Include photo with every alert. Accidental line removal can cause infection, bleeding, or airway compromise.""",
+    ),
+
+    "post_op": Goal(
+        goal_id="post_op",
+        name="Post-Operative Distress Monitor",
+        description="Watch for unusual agitation, restlessness, or distress signs after surgery.",
+        icon="🏥",
+        category="clinical",
+        alert_triggers=["agitation_detected", "distress_signs", "unusual_movement", "fall_detected"],
+        system_supplement="""## Goal: Post-Operative Distress Monitoring (Clinical)
+You are monitoring a post-surgical patient. Post-op complications can manifest as visible behavioral changes.
+
+**What to watch for:**
+- AGITATION: Frequent position changes, restless limb movement, high activity speed while in bed
+  → May indicate pain, delirium, adverse drug reaction, or internal complication
+- DISTRESS SIGNS: Sudden increase in movement after period of rest
+  → May indicate acute pain event, nausea, or breathing difficulty
+- UNUSUAL POSTURES: Patient curling up (fetal position), guarding abdomen, clutching chest
+  → Landmarks: knees (25,26) drawing up toward chest, arms (15,16) crossing over torso
+- SUDDEN STILLNESS after agitation: Activity dropping to zero after period of high movement
+  → May indicate loss of consciousness — CRITICAL
+- FALL: Any fall detection is emergency-level for post-op patients (surgical site risk)
+
+**Alert levels:**
+1. Mild restlessness: "Post-op patient showing increased movement. Monitor for comfort."
+2. Agitation: "⚠️ Patient is agitated — frequent position changes, elevated movement. Pain assessment needed."
+3. Distress posture: "🚨 Patient in distress posture (guarding/fetal). Assess for complication."
+4. Sudden collapse: "🚨🚨 EMERGENCY: Patient suddenly became unresponsive after agitation. Immediate assessment."
+
+**Voice:** Gentle, reassuring: "You're doing well. Try to rest. The nurse is being notified."
+
+Post-op monitoring is critical in the first 24-48 hours. Trust the data — escalate early.""",
+    ),
+
+    "wandering": Goal(
+        goal_id="wandering",
+        name="Wandering / Elopement Prevention",
+        description="Alert when confused or dementia patient leaves bed or room unsupervised.",
+        icon="🚪",
+        category="clinical",
+        alert_triggers=["left_bed", "left_room", "walking_detected", "person_disappeared"],
+        system_supplement="""## Goal: Wandering & Elopement Prevention (Clinical)
+You are monitoring a patient with cognitive impairment (dementia, delirium, confusion) who is at risk of wandering.
+
+**What to watch for:**
+- Patient transitioning from "lying_down"/"sitting" → "standing" → "walking" = LEAVING BED
+- Person's bounding box moving toward edges of frame = MOVING TOWARD DOOR/EXIT
+- Person disappearing from camera view entirely = LEFT THE ROOM (CRITICAL)
+- Activity = "walking" for a patient who should be in bed = WANDERING
+- Nighttime activity (unusual hours) = especially concerning for sundowner syndrome
+
+**Detection logic:**
+- Track person's bounding box center position over time
+- If center moves consistently in one direction (toward frame edge) = heading for exit
+- If tracked person count drops from 1 to 0 = person left camera view
+- If activity changes from stationary to "walking" = mobility event
+
+**Alert escalation:**
+1. Sitting up at night: "Patient is sitting up. Monitoring for further movement."
+2. Standing: "⚠️ Patient is out of bed and standing. Fall risk + elopement risk."
+3. Walking: "🚨 Patient is walking — wandering risk. Check on patient immediately."
+4. Left room: "🚨🚨 ELOPEMENT ALERT: Patient has left the monitored area. Locate patient NOW."
+
+**Voice:** Calm, orienting: "Hello, it's nighttime. You're safe in the hospital. Please stay in bed."
+
+Wandering patients can fall, get lost, leave the building, or enter dangerous areas.
+Elopement is a sentinel event — it MUST be caught. Alert early and often.""",
+    ),
+
     # ── Skill Coaching Goals ─────────────────────────────────────────────
 
     "skill_coach": Goal(
@@ -417,6 +578,11 @@ def match_goal_from_text(text: str) -> Goal | None:
         "driver_monitor": ["driver", "drowsy", "sleep", "driving", "awake", "drowsiness"],
         "study_focus": ["study", "focus", "distract", "homework", "reading", "concentrate", "pomodoro"],
         "elderly_care": ["elderly", "elder", "fall", "grandma", "grandpa", "senior", "caregiver"],
+        "bed_exit": ["bed exit", "bed alarm", "get out of bed", "leaving bed", "out of bed", "bed rail"],
+        "immobility": ["immobil", "pressure ulcer", "bedsore", "bed sore", "repositioning", "turn patient", "pressure sore"],
+        "line_pulling": ["iv line", "tube", "catheter", "oxygen", "pulling line", "nasal cannula", "ng tube", "line safety"],
+        "post_op": ["post op", "post-op", "surgery", "surgical", "post operative", "recovery room", "pacu"],
+        "wandering": ["wander", "elopement", "dementia", "confused", "leave room", "exit room", "sundowner"],
         "skill_coach": ["skill", "coach", "learn", "technique", "movement", "motion", "expert"],
         "pt_rehab": ["rehab", "therapy", "physical therapy", "pt", "recovery", "injury"],
         "fitness_trainer": ["workout", "fitness", "squat", "pushup", "plank", "exercise", "rep", "set", "curl", "deadlift"],

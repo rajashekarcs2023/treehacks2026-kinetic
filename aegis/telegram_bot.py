@@ -174,10 +174,22 @@ class TelegramBot:
         if text.strip().startswith("/goal_"):
             goal_id = text.strip().replace("/goal_", "").lower()
             goal = self.agent.set_goal_by_id(goal_id)
+            # Also trigger the server monitoring loop
+            try:
+                import aegis.server as srv
+                import asyncio
+                srv._monitoring_active = True
+                srv._monitoring_goal = goal_id
+                srv._monitoring_alerts.clear()
+                if srv._monitoring_task is None or srv._monitoring_task.done():
+                    loop = asyncio.get_event_loop()
+                    srv._monitoring_task = loop.create_task(srv._run_monitoring_loop())
+            except Exception:
+                pass
             self.send_message(
                 f"{goal.icon} *Goal set: {goal.name}*\n"
                 f"_{goal.description}_\n\n"
-                "I'll start monitoring with this goal now."
+                "Monitoring started! I'll send alerts here."
             )
             return
 

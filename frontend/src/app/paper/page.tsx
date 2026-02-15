@@ -30,7 +30,7 @@ export default function PaperPage() {
           {/* Title */}
           <div className="text-center space-y-4 pb-6 border-b border-border">
             <h1 className="text-2xl md:text-3xl font-bold leading-tight">
-              Kinetic: Real-Time AI Skill Coaching Through Expert Motion Transfer and Multi-Modal Feedback
+              Kinetic: A Cognitive Layer for Real-Time Physical Movement Intelligence
             </h1>
             <p className="text-base font-medium">
               Rajashekar Vennavelli
@@ -44,22 +44,26 @@ export default function PaperPage() {
           <section>
             <h2 className="text-lg font-bold text-primary mb-3">Abstract</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              We present <strong className="text-foreground">Kinetic</strong>, a real-time AI coaching system that enables users to learn
-              any physical skill without requiring expert video demonstrations. Kinetic introduces a 4-tier expert
-              generation pipeline that synthesizes biomechanically accurate reference poses from natural language
-              descriptions, leveraging canonical biomechanical templates, large language model semantic mapping
-              (Claude Sonnet 4), and state-of-the-art text-to-3D motion generation (HY-Motion 1.0-Lite on NVIDIA A100).
-              Our system evaluates user form using a novel triple-metric scoring engine combining Gaussian joint angle
-              comparison, cosine spatial similarity, and COCO Object Keypoint Similarity (OKS). Real-time feedback is
-              delivered through conversational voice coaching (GPT-4o Realtime API) with 3-layer interruption handling.
-              Edge AI inference on NVIDIA DGX Spark&apos;s GB10 Superchip provides sub-50ms pose estimation latency.
-              The system orchestrates 44 MCP tools across 12 categories through the Anthropic Claude Agent SDK with
-              3 sub-agents. Kinetic demonstrates that AI-driven coaching can match the quality of human instruction
-              while being accessible to anyone with a camera and microphone.
+              We present <strong className="text-foreground">Kinetic</strong>, the first real-time physical movement intelligence
+              system that perceives, reasons about, and enhances human physical capability across multiple domains:
+              skill coaching, physical therapy rehabilitation, autonomous fall detection, and spatial monitoring.
+              Kinetic introduces a 4-tier expert generation pipeline that synthesizes biomechanically accurate
+              reference poses from natural language descriptions, leveraging canonical biomechanical templates,
+              large language model semantic mapping (Claude Sonnet 4), and state-of-the-art text-to-3D motion
+              generation (HY-Motion 1.0-Lite on NVIDIA A100). Our system evaluates movement using a novel
+              triple-metric scoring engine combining Gaussian joint angle comparison, cosine spatial similarity,
+              and COCO Object Keypoint Similarity (OKS). Real-time feedback is delivered through conversational
+              voice coaching (GPT-4o Realtime API) with 3-layer interruption handling. In autonomous monitoring
+              mode, Kinetic watches physical spaces for falls, inactivity, and safety events — sending alerts
+              via Telegram with photos. Edge AI inference on NVIDIA DGX Spark&apos;s GB10 Superchip provides
+              sub-50ms pose estimation latency. The system orchestrates 44 MCP tools across 12 categories through
+              the Anthropic Claude Agent SDK with 3 sub-agents. Kinetic demonstrates that AI-driven physical
+              intelligence can augment human physical agency — helping people move, recover, express, and
+              perform at their full potential.
             </p>
             <p className="text-sm text-muted-foreground mt-3">
-              <strong className="text-foreground">Keywords:</strong> AI Coaching, Pose Estimation, Motion Generation,
-              Edge AI, Multi-Agent Systems, Real-Time Voice, Computer Vision, DGX Spark, Modal GPU, Claude Agent SDK
+              <strong className="text-foreground">Keywords:</strong> Physical Movement Intelligence, Pose Estimation, Motion Generation,
+              Fall Detection, Autonomous Monitoring, Edge AI, Multi-Agent Systems, Real-Time Voice, Computer Vision, DGX Spark, Modal GPU, Claude Agent SDK
             </p>
           </section>
 
@@ -67,11 +71,12 @@ export default function PaperPage() {
           <section>
             <h2 className="text-lg font-bold text-primary mb-3">1. Introduction</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Physical skill learning has remained fundamentally unchanged for decades: learners either hire expensive
-              personal coaches ($80–200/hour), follow static video tutorials that cannot observe their form, or use
-              fitness apps that count reps without understanding biomechanics. An estimated 1.7 billion people worldwide
-              desire to learn physical skills — from gym exercises to martial arts to dance — yet lack access to
-              quality, personalized instruction.
+              Today, AI augments cognitive intelligence — helping us write, code, and reason. Yet human physical
+              capability remains fundamentally unaugmented. Movement literacy, motor skill development, rehabilitation,
+              injury prevention, and safety monitoring still depend on expensive human experts ($80–200/hour for
+              personal trainers, $100+/hour for physical therapists) or crude apps that count reps without
+              understanding biomechanics. An estimated 1.7 billion people worldwide desire to learn physical
+              skills, 55 million elderly Americans need fall monitoring, and millions need accessible PT rehab.
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground mt-3">
               Recent advances in computer vision (MediaPipe [1], YOLOv8 [2]), large language models (Claude [3],
@@ -83,9 +88,12 @@ export default function PaperPage() {
               users cannot observe during active movement.
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground mt-3">
-              Kinetic addresses all three limitations. Our 4-tier expert generation pipeline eliminates the need for
-              demonstration videos. Our triple-metric scoring engine provides robust, multi-dimensional form evaluation.
-              And our voice-first interface delivers corrections naturally during active movement.
+              Kinetic addresses all three limitations and goes further — introducing autonomous spatial monitoring
+              for fall detection, goal-based reasoning for safety-critical environments, and multi-modal intelligence
+              that spans coaching, rehabilitation, and patient monitoring. Our 4-tier expert generation pipeline
+              eliminates the need for demonstration videos. Our triple-metric scoring engine provides robust,
+              multi-dimensional form evaluation. And our voice-first interface delivers corrections naturally
+              during active movement.
             </p>
           </section>
 
@@ -200,9 +208,31 @@ export default function PaperPage() {
             </p>
           </section>
 
-          {/* 5. Edge AI */}
+          {/* 5. Autonomous Monitoring */}
           <section>
-            <h2 className="text-lg font-bold text-primary mb-3">5. Edge AI Inference on DGX Spark</h2>
+            <h2 className="text-lg font-bold text-primary mb-3">5. Autonomous Monitoring Mode</h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Beyond coaching, Kinetic operates as an autonomous spatial intelligence agent. In monitoring mode,
+              the system accepts a goal (fall detection, desk security, posture watch, study focus) and runs a
+              continuous perception→reasoning→action loop:
+            </p>
+            <ol className="text-sm leading-relaxed text-muted-foreground mt-3 space-y-2 list-decimal list-inside">
+              <li><strong className="text-foreground">Perception</strong> — MediaPipe pose + YOLO detection at 2 FPS (efficiency-optimized for 24/7 monitoring).</li>
+              <li><strong className="text-foreground">Activity Classification</strong> — Multi-signal approach with temporal smoothing: standing, walking, sitting, fallen, exercising, lying_down.</li>
+              <li><strong className="text-foreground">Goal-Based Reasoning</strong> — Claude Agent SDK evaluates whether detected activity matches the configured goal&apos;s alert triggers.</li>
+              <li><strong className="text-foreground">Autonomous Action</strong> — Sends Telegram alerts with snapshot photos, voice alerts via OpenAI Realtime, and logs to the tool call panel.</li>
+            </ol>
+            <p className="text-sm leading-relaxed text-muted-foreground mt-3">
+              The monitoring loop is fully bidirectional: caregivers can send Telegram commands (/status, /goals,
+              /photo, /start, /stop) to control the system remotely. For hospital deployment, the elderly_care
+              goal prioritizes fall detection with immediate photo alerts — designed for patient safety scenarios
+              where response time is critical.
+            </p>
+          </section>
+
+          {/* 6. Edge AI */}
+          <section>
+            <h2 className="text-lg font-bold text-primary mb-3">6. Edge AI Inference on DGX Spark</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
               Real-time coaching demands sub-100ms feedback latency. Cloud-based pose estimation introduces
               200-500ms of network latency, which creates a perceptible delay between movement and feedback.
@@ -218,9 +248,9 @@ export default function PaperPage() {
             </p>
           </section>
 
-          {/* 6. Voice Coaching */}
+          {/* 7. Voice Coaching */}
           <section>
-            <h2 className="text-lg font-bold text-primary mb-3">6. Voice-First Coaching Interface</h2>
+            <h2 className="text-lg font-bold text-primary mb-3">7. Voice-First Coaching Interface</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
               When users are actively performing physical movements, they cannot look at a screen. Voice is
               the only interface modality that works during active exercise. Kinetic uses OpenAI&apos;s GPT-4o
@@ -233,12 +263,12 @@ export default function PaperPage() {
             </ol>
           </section>
 
-          {/* 7. Claude Agent SDK */}
+          {/* 8. Claude Agent SDK */}
           <section>
-            <h2 className="text-lg font-bold text-primary mb-3">7. Multi-Agent Orchestration with Claude Agent SDK</h2>
+            <h2 className="text-lg font-bold text-primary mb-3">8. Multi-Agent Orchestration with Claude Agent SDK</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Kinetic uses the Anthropic Claude Agent SDK for deep multi-agent orchestration. The coaching
-              brain consists of Claude Sonnet 4 with 44 MCP tools organized across 12 categories:
+              Kinetic uses the Anthropic Claude Agent SDK for deep multi-agent orchestration. The physical
+              intelligence brain consists of Claude Sonnet 4 with 46 MCP tools organized across 12 categories:
               spatial analysis, pose comparison, skill coaching, expert generation, recording, reference
               management, phase detection, rep counting, training data, document parsing, skill intelligence,
               and system configuration.
@@ -252,9 +282,9 @@ export default function PaperPage() {
             </p>
           </section>
 
-          {/* 8. Results */}
+          {/* 9. Results */}
           <section>
-            <h2 className="text-lg font-bold text-primary mb-3">8. Implementation &amp; Results</h2>
+            <h2 className="text-lg font-bold text-primary mb-3">9. Implementation &amp; Results</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-sm border border-border rounded-lg overflow-hidden">
                 <thead>
@@ -271,7 +301,9 @@ export default function PaperPage() {
                   <tr className="border-t border-border"><td className="p-3">Modal HY-Motion</td><td className="p-3">Output Shape</td><td className="p-3">[30, 52, 3]</td></tr>
                   <tr className="border-t border-border"><td className="p-3">Expert Pipeline Tier 1</td><td className="p-3">Latency</td><td className="p-3">&lt;1ms</td></tr>
                   <tr className="border-t border-border"><td className="p-3">Expert Pipeline Tier 3</td><td className="p-3">Latency</td><td className="p-3">~1s</td></tr>
-                  <tr className="border-t border-border"><td className="p-3">Claude Agent</td><td className="p-3">MCP Tools</td><td className="p-3">44</td></tr>
+                  <tr className="border-t border-border"><td className="p-3">Claude Agent</td><td className="p-3">MCP Tools</td><td className="p-3">46 (HTTP-exposed)</td></tr>
+                  <tr className="border-t border-border"><td className="p-3">Intelligence Modes</td><td className="p-3">Count</td><td className="p-3">4 (coach, PT, monitor, hospital)</td></tr>
+                  <tr className="border-t border-border"><td className="p-3">Telegram Bot</td><td className="p-3">Commands</td><td className="p-3">8 bidirectional</td></tr>
                   <tr className="border-t border-border"><td className="p-3">Codebase</td><td className="p-3">Lines of Code</td><td className="p-3">17,000+</td></tr>
                   <tr className="border-t border-border"><td className="p-3">Build Time</td><td className="p-3">Duration</td><td className="p-3">20 hours (solo)</td></tr>
                 </tbody>
@@ -279,21 +311,25 @@ export default function PaperPage() {
             </div>
           </section>
 
-          {/* 9. Conclusion */}
+          {/* 10. Conclusion */}
           <section>
-            <h2 className="text-lg font-bold text-primary mb-3">9. Conclusion</h2>
+            <h2 className="text-lg font-bold text-primary mb-3">10. Conclusion</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Kinetic demonstrates that real-time, voice-driven skill coaching is achievable through the
+              Kinetic demonstrates that real-time physical movement intelligence is achievable through the
               combination of edge AI inference, multi-agent LLM orchestration, and state-of-the-art motion
-              generation. By eliminating the requirement for expert video demonstrations, Kinetic makes
-              high-quality physical coaching accessible to anyone with a camera. The triple-metric scoring
-              engine provides robust form evaluation that goes beyond simple angle comparison, while the
-              voice-first interface enables natural coaching during active movement.
+              generation. By unifying skill coaching, physical therapy, autonomous monitoring, and hospital
+              safety into a single platform, Kinetic shows that the same CV + AI stack that coaches a squat
+              can detect a fall, guide PT rehab, and monitor a hospital room. The triple-metric scoring
+              engine provides robust form evaluation, the voice-first interface enables natural coaching
+              during active movement, and the Telegram integration enables autonomous operation without
+              any human in the loop.
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground mt-3">
+              AI has transformed cognitive work. Kinetic brings that transformation to physical capability.
               Future work will explore wearable AR integration for projected skeleton overlays,
-              multi-camera 3D reconstruction for depth-aware coaching, personalized models fine-tuned on
-              individual movement patterns, and injury prevention through dangerous movement detection.
+              multi-camera 3D reconstruction for depth-aware fall detection, clinical PT dashboards for
+              remote rehabilitation monitoring, and hospital deployment with ceiling-mounted cameras
+              for 24/7 patient safety.
             </p>
           </section>
 

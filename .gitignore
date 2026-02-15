@@ -19,9 +19,24 @@ models/*.task
 data/references/
 data/memory/
 venv
+# Internal docs (not for submission)
 DESIGN.md
 PIVOT.md
 STATUS.md
 API.md
+PROJECT.md
+PRODUCT.md
+SKILLCOACH.md
+USECASES.md
+PRIZES_AND_ARCHITECTURE.md
+ARCHITECTURE_DIAGRAM.md
 backendlogs.md
 treehacks2026prizes.md
+devpostreference.md
+himotionmodel.md
+modaldocs.md
+pivotideas.md
+poke.md
+pokeintegrate.md
+winnerreference.md
+zoom.md

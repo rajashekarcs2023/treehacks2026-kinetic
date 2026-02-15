@@ -40,12 +40,17 @@ from aegis.pose_comparison import (
 
 # ── FastMCP server instance ─────────────────────────────────────────────
 mcp = FastMCP(
-    name="aegis-spatial",
+    name="kinetic-movement-intelligence",
     instructions=(
-        "AEGIS skill coaching + spatial intelligence server. Provides 40 tools for "
-        "real-time skill coaching with expert motion transfer, pose comparison, "
-        "movement quality analysis, coaching sessions, plus spatial perception, "
-        "activity tracking, alerts, memory, knowledge, and goal management."
+        "Kinetic — Real-Time Physical Movement Intelligence. Provides 45 tools for "
+        "AI skill coaching, physical therapy rehab, autonomous fall detection, "
+        "spatial monitoring, pose comparison, movement quality analysis, "
+        "expert motion generation, voice coaching, Telegram alerts, "
+        "activity tracking, memory, knowledge, and goal management. "
+        "Use start_coaching_session to begin coaching a skill. "
+        "Use speak_to_user to deliver voice feedback. "
+        "Use send_alert to trigger Telegram notifications. "
+        "Use get_pose_landmarks and analyze_posture for movement analysis."
     ),
 )
 

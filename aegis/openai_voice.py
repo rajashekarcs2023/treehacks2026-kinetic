@@ -44,7 +44,7 @@ RULES:
 - If user speaks another language, switch to that language
 - NEVER give medical advice
 - NEVER repeat yourself or read data aloud
-- If you can't see their full body, say 'Step back a bit, I can't see your legs'"""
+- You do NOT have vision. You only see coaching data (scores, angles). Never comment on visibility."""
 
     extras = []
     if skill:

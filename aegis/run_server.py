@@ -18,6 +18,7 @@ from aegis.sdk_agent import AegisSDKAgent
 from aegis.gemini_bridge import GeminiBridge
 from aegis.openai_voice import OpenAIVoiceBridge
 from aegis.dgx_client import DGXClient
+from aegis.telegram_bot import TelegramBot
 import aegis.server as server_module
 from aegis.server import app
 import aegis.mcp_server as mcp_module
@@ -101,8 +102,17 @@ def main():
         print(f"[DGX] Client configured for {dgx_url}")
         print(f"[DGX] Will check connectivity on first request")
 
+    # Initialize Telegram bot for alerts + incoming commands
+    tg_bot = TelegramBot(agent=agent)
+    if tg_bot.is_configured:
+        server_module.telegram_bot = tg_bot
+        tg_bot.start_polling()  # Listen for /status, /goals, /photo commands
+        print(f"[Telegram] Bot configured — sending alerts + receiving commands")
+    else:
+        print(f"[Telegram] Not configured (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)")
+
     # Initialize MCP server with shared state
-    mcp_module.init(engine=engine, telegram_sender=None, agent=agent, dgx_client=dgx_client)
+    mcp_module.init(engine=engine, telegram_sender=tg_bot if tg_bot.is_configured else None, agent=agent, dgx_client=dgx_client)
     print(f"[MCP] aegis-spatial initialized (45 tools)")
 
     print(f"[Server] Starting on {args.host}:{args.port}")

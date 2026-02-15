@@ -81,6 +81,11 @@ agent = None   # AegisSDKAgent instance (set externally)
 gemini_bridge = None  # GeminiBridge instance (set externally)
 openai_voice = None   # OpenAIVoiceBridge instance (set externally)
 dgx_client = None     # DGXClient instance (set externally)
+telegram_bot = None   # TelegramBot instance (set externally)
+_monitoring_active = False
+_monitoring_goal = None
+_monitoring_task: asyncio.Task | None = None
+_monitoring_alerts: list[dict] = []
 
 # ── Coaching state ────────────────────────────────────────────────────
 _reference_store = ReferenceStore()
@@ -877,12 +882,29 @@ async def ai_expert_generate(req: AIExpertGenerateRequest):
     )
     if seq is None:
         return {"error": f"Could not generate expert for '{req.skill_description}'"}
+
+    # Serialize skeleton keypoints for frontend rendering
+    keyframes = []
+    for skel in seq.skeletons:
+        frame_pts = []
+        for pt in skel.points:
+            if isinstance(pt, (list, tuple)) and len(pt) >= 3:
+                frame_pts.append([float(pt[0]), float(pt[1]), float(pt[2])])
+            elif isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                frame_pts.append([float(pt[0]), float(pt[1]), 0.95])
+            else:
+                frame_pts.append([0.0, 0.0, 0.0])
+        keyframes.append(frame_pts)
+
     return {
         "skill": req.skill_description,
         "source": seq.metadata.get("source", "unknown") if seq.metadata else "unknown",
         "frame_count": seq.frame_count,
         "phases": seq.metadata.get("phases", []) if seq.metadata else [],
         "coaching_cues": seq.metadata.get("coaching_cues", []) if seq.metadata else [],
+        "keyframes": keyframes,
+        "generation_ms": seq.metadata.get("generation_ms", 0) if seq.metadata else 0,
+        "model": seq.metadata.get("model", "") if seq.metadata else "",
     }
 
 
@@ -1547,6 +1569,257 @@ async def dgx_status():
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# MONITORING MODE — Autonomous spatial intelligence with goal-based alerts
+# ═══════════════════════════════════════════════════════════════════════
+
+class MonitoringStartRequest(BaseModel):
+    goal_id: str = "elderly_care"
+    custom_goal: str = ""
+
+
+class AlertRequest(BaseModel):
+    message: str
+
+
+@app.post("/api/monitoring/start")
+async def monitoring_start(req: MonitoringStartRequest):
+    """Start autonomous monitoring mode with a goal."""
+    global _monitoring_active, _monitoring_goal, _monitoring_task
+
+    _monitoring_active = True
+    _monitoring_goal = req.goal_id
+    _monitoring_alerts.clear()
+
+    # Set agent goal if available
+    if agent:
+        try:
+            agent.set_goal_by_id(req.goal_id)
+        except Exception:
+            pass
+
+    # Start monitoring background task
+    if _monitoring_task is None or _monitoring_task.done():
+        _monitoring_task = asyncio.create_task(_run_monitoring_loop())
+
+    return {
+        "status": "monitoring_started",
+        "goal": req.goal_id,
+        "agent_active": agent is not None,
+        "telegram_configured": telegram_bot is not None and telegram_bot.is_configured if telegram_bot else False,
+    }
+
+
+@app.post("/api/monitoring/stop")
+async def monitoring_stop():
+    """Stop autonomous monitoring."""
+    global _monitoring_active, _monitoring_task
+    _monitoring_active = False
+    if _monitoring_task and not _monitoring_task.done():
+        _monitoring_task.cancel()
+    _monitoring_task = None
+    return {"status": "monitoring_stopped", "alerts_sent": len(_monitoring_alerts)}
+
+
+@app.get("/api/monitoring/status")
+async def monitoring_status():
+    """Get monitoring status and recent alerts."""
+    return {
+        "active": _monitoring_active,
+        "goal": _monitoring_goal,
+        "alerts": _monitoring_alerts[-20:],
+        "persons_detected": len(engine._tracked_persons) if engine and hasattr(engine, '_tracked_persons') else 0,
+    }
+
+
+@app.post("/api/alert")
+async def send_alert(req: AlertRequest):
+    """Send an alert via Telegram (and log it)."""
+    alert_entry = {"message": req.message, "timestamp": time.time(), "sent": False}
+
+    if telegram_bot and telegram_bot.is_configured:
+        try:
+            telegram_bot.send_message(f"🚨 KINETIC ALERT\n\n{req.message}")
+            alert_entry["sent"] = True
+        except Exception as e:
+            alert_entry["error"] = str(e)
+    else:
+        alert_entry["note"] = "Telegram not configured — alert logged only"
+
+    _monitoring_alerts.append(alert_entry)
+    return {"status": "sent" if alert_entry.get("sent") else "logged", **alert_entry}
+
+
+async def _run_monitoring_loop():
+    """Background loop: monitor the scene and trigger alerts autonomously."""
+    last_fall_alert = 0
+    last_activity_check = 0
+    last_bed_exit_alert = 0
+    last_immobility_alert = 0
+    last_line_alert = 0
+    last_wandering_alert = 0
+    last_agitation_alert = 0
+    immobility_start: dict[int, float] = {}  # person_id → timestamp when immobility began
+    prev_activities: dict[int, str] = {}  # person_id → last known activity
+
+    while _monitoring_active:
+        try:
+            await asyncio.sleep(3)
+            if not _monitoring_active or engine is None:
+                continue
+
+            persons = engine._tracked_persons if hasattr(engine, '_tracked_persons') else []
+            now = time.time()
+            goal = _monitoring_goal or "elderly_care"
+
+            for person in persons:
+                activity = person.activity if hasattr(person, 'activity') else None
+                pid = person.track_id if hasattr(person, 'track_id') else 0
+                speed = person.speed if hasattr(person, 'speed') else 0
+                prev_act = prev_activities.get(pid)
+
+                # ── FALL DETECTION (all clinical + elderly_care) ──
+                if activity in ("fallen", "lying_down") and (now - last_fall_alert) > 30:
+                    if goal in ("elderly_care", "bed_exit", "post_op", "wandering", "general"):
+                        last_fall_alert = now
+                        alert_msg = f"⚠️ FALL DETECTED — Person appears to have fallen. Activity: {activity}. Immediate attention needed."
+                        _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "fall", "sent": False})
+                        await _send_clinical_alert(alert_msg, "fall", now)
+
+                # ── BED EXIT DETECTION ──
+                if goal == "bed_exit" and (now - last_bed_exit_alert) > 20:
+                    if prev_act in ("lying_down", "sitting") and activity in ("standing", "walking"):
+                        last_bed_exit_alert = now
+                        severity = "🚨🚨 CRITICAL" if activity == "walking" else "🚨 ALERT"
+                        alert_msg = f"{severity}: Bed exit detected — patient went from {prev_act} to {activity}. Fall risk!"
+                        _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "bed_exit", "sent": False})
+                        await _send_clinical_alert(alert_msg, "bed_exit", now)
+
+                # ── IMMOBILITY / PRESSURE ULCER ──
+                if goal == "immobility":
+                    if activity in ("lying_down", "sitting") and speed is not None and speed < 0.5:
+                        if pid not in immobility_start:
+                            immobility_start[pid] = now
+                        elapsed_min = (now - immobility_start[pid]) / 60
+                        if elapsed_min > 120 and (now - last_immobility_alert) > 300:
+                            last_immobility_alert = now
+                            alert_msg = f"🚨 REPOSITIONING NEEDED: Patient immobile for {int(elapsed_min)} minutes. Pressure ulcer risk. Activity: {activity}."
+                            _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "immobility", "sent": False})
+                            await _send_clinical_alert(alert_msg, "immobility", now)
+                        elif elapsed_min > 60 and (now - last_immobility_alert) > 600:
+                            last_immobility_alert = now
+                            alert_msg = f"⏱️ Immobility notice: Patient in same position for {int(elapsed_min)} minutes. Consider repositioning."
+                            _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "immobility_warning", "sent": False})
+                            await _send_clinical_alert(alert_msg, "immobility_warning", now)
+                    else:
+                        if pid in immobility_start:
+                            del immobility_start[pid]
+
+                # ── LINE & TUBE SAFETY (agitation-based) ──
+                if goal == "line_pulling" and (now - last_line_alert) > 20:
+                    if activity in ("exercising",) or (activity == "lying_down" and speed is not None and speed > 2.0):
+                        last_line_alert = now
+                        alert_msg = f"⚠️ Line safety concern: Patient showing agitated movement (activity: {activity}, speed: {speed:.1f}). Check IV/tube integrity."
+                        _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "line_pulling", "sent": False})
+                        await _send_clinical_alert(alert_msg, "line_pulling", now)
+
+                # ── POST-OP DISTRESS ──
+                if goal == "post_op" and (now - last_agitation_alert) > 30:
+                    if speed is not None and speed > 3.0 and activity in ("lying_down", "sitting"):
+                        last_agitation_alert = now
+                        alert_msg = f"⚠️ Post-op agitation: Patient showing elevated movement (speed: {speed:.1f}) while {activity}. Pain or distress assessment needed."
+                        _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "post_op_agitation", "sent": False})
+                        await _send_clinical_alert(alert_msg, "post_op", now)
+                    elif prev_act in ("sitting", "lying_down") and activity == "fallen":
+                        last_agitation_alert = now
+                        alert_msg = f"🚨🚨 EMERGENCY: Post-op patient has fallen! Activity: {activity}. Surgical site at risk. Immediate response."
+                        _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "post_op_fall", "sent": False})
+                        await _send_clinical_alert(alert_msg, "post_op_fall", now)
+
+                # ── WANDERING / ELOPEMENT ──
+                if goal == "wandering" and (now - last_wandering_alert) > 20:
+                    if prev_act in ("lying_down", "sitting") and activity in ("standing", "walking"):
+                        last_wandering_alert = now
+                        severity = "🚨 WANDERING" if activity == "walking" else "⚠️ Out of bed"
+                        alert_msg = f"{severity}: Patient is now {activity} (was {prev_act}). Elopement risk — check on patient."
+                        _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "wandering", "sent": False})
+                        await _send_clinical_alert(alert_msg, "wandering", now)
+
+                # Track previous activity for transition detection
+                if activity:
+                    prev_activities[pid] = activity
+
+            # ── WANDERING: person disappeared from view ──
+            if goal == "wandering" and (now - last_wandering_alert) > 20:
+                if len(persons) == 0 and prev_activities:
+                    last_wandering_alert = now
+                    alert_msg = "🚨🚨 ELOPEMENT ALERT: Patient has left the monitored area. No person detected. Locate patient NOW."
+                    _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "elopement", "sent": False})
+                    await _send_clinical_alert(alert_msg, "elopement", now)
+
+            # Periodic scene check via agent (every 30s)
+            if agent and (now - last_activity_check) > 30 and persons:
+                last_activity_check = now
+                activities = [getattr(p, 'activity', 'unknown') for p in persons]
+                try:
+                    response = await agent.send_message(
+                        f"Monitoring check ({goal} mode): {len(persons)} person(s) detected. "
+                        f"Activities: {', '.join(activities)}. "
+                        "Assess per your goal instructions. If concerning, alert via Telegram."
+                    )
+                    _monitoring_alerts.append({
+                        "message": f"[Agent Check] {response[:200]}",
+                        "timestamp": now,
+                        "type": "check",
+                        "sent": False,
+                    })
+                except Exception:
+                    pass
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[Monitor] Error in monitoring loop: {e}")
+            await asyncio.sleep(5)
+
+
+async def _send_clinical_alert(alert_msg: str, alert_type: str, now: float):
+    """Send alert via Telegram (with photo) + voice + agent analysis."""
+    # Telegram with photo
+    if telegram_bot and telegram_bot.is_configured:
+        snapshot_path = None
+        if engine and hasattr(engine, '_last_frame') and engine._last_frame is not None:
+            snapshot_path = os.path.join(config.SNAPSHOTS_DIR, f"{alert_type}_{int(now)}.jpg")
+            try:
+                cv2.imwrite(snapshot_path, engine._last_frame)
+            except Exception:
+                snapshot_path = None
+        try:
+            telegram_bot.send_message(alert_msg, photo_path=snapshot_path)
+            if _monitoring_alerts:
+                _monitoring_alerts[-1]["sent"] = True
+        except Exception:
+            pass
+
+    # Voice alert for critical
+    if openai_voice and openai_voice.is_connected:
+        try:
+            voice_msg = alert_msg.replace("🚨🚨", "").replace("🚨", "").replace("⚠️", "").replace("⏱️", "").strip()
+            await openai_voice.speak(f"Clinical alert: {voice_msg[:150]}")
+        except Exception:
+            pass
+
+    # Agent analysis
+    if agent:
+        try:
+            await agent.send_message(
+                f"CLINICAL ALERT ({alert_type}): {alert_msg}. "
+                "Assess the situation per your goal instructions. Use speak_to_user if needed."
+            )
+        except Exception:
+            pass
+
+
 @app.get("/api/voice/status")
 async def voice_status():
     """Voice bridge status (OpenAI Realtime or Gemini Live)."""
@@ -1600,6 +1873,17 @@ async def ws_coaching(websocket: WebSocket):
             _coaching_ws_clients.remove(websocket)
         print(f"[Server] Coaching WS client disconnected ({len(_coaching_ws_clients)} remaining)")
 
+
+# ── MCP over HTTP (for Poke integration) ──────────────────────────
+# Exposes the MCP server at /mcp so Poke (or any MCP client) can connect
+# via Streamable HTTP / SSE transport.
+try:
+    from aegis.mcp_server import mcp as _mcp_server
+    _mcp_http = _mcp_server.http_app()
+    app.mount("/mcp", _mcp_http)
+    print("[MCP/HTTP] Mounted at /mcp — Poke can connect to http://HOST:8000/mcp")
+except Exception as _e:
+    print(f"[MCP/HTTP] Could not mount: {_e}")
 
 # ── Static files ────────────────────────────────────────────────────
 

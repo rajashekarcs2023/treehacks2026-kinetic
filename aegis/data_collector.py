@@ -199,6 +199,53 @@ class DataCollector:
                 all_samples.extend(self.load_samples(skill))
         return all_samples
 
+    def get_last_session_summary(self, skill: str, max_samples: int = 20) -> dict | None:
+        """Get a summary of the last coaching session for a skill.
+
+        Returns avg score, total reps, top corrections, best/worst scores.
+        Used to inject session memory into the voice coach.
+        """
+        filepath = self._get_filepath(skill)
+        if not os.path.exists(filepath):
+            return None
+
+        # Read last N lines efficiently
+        lines = []
+        try:
+            with open(filepath) as f:
+                all_lines = f.readlines()
+                lines = all_lines[-max_samples:] if len(all_lines) > max_samples else all_lines
+        except Exception:
+            return None
+
+        if not lines:
+            return None
+
+        scores = []
+        corrections_count: dict[str, int] = {}
+        for line in lines:
+            try:
+                d = json.loads(line.strip())
+                scores.append(d.get("score", 0))
+                for c in d.get("corrections", []):
+                    corrections_count[c] = corrections_count.get(c, 0) + 1
+            except Exception:
+                continue
+
+        if not scores:
+            return None
+
+        top_corrections = sorted(corrections_count.items(), key=lambda x: -x[1])[:3]
+        return {
+            "skill": skill,
+            "total_reps": len(scores),
+            "avg_score": round(sum(scores) / len(scores), 1),
+            "best_score": round(max(scores), 1),
+            "worst_score": round(min(scores), 1),
+            "top_corrections": [c[0] for c in top_corrections],
+            "improving": len(scores) >= 3 and scores[-1] > scores[0],
+        }
+
     def get_dataset_stats(self) -> dict:
         """Get statistics about the collected training data."""
         stats = {

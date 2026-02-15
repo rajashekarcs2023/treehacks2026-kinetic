@@ -33,9 +33,29 @@ export async function trainActivityModel(nPerClass = 150, epochs = 60) {
 // ── Coaching ───────────────────────────────────────────────────────
 export async function startCoaching(skill: string, reference?: string) {
   return fetchAPI<CoachingStatus>(
-    `/api/coaching/start?skill=${encodeURIComponent(skill)}${reference ? `&reference=${encodeURIComponent(reference)}` : ""}`,
-    { method: "POST" }
+    "/api/coaching/start",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        skill_name: skill,
+        reference_name: reference || null,
+      }),
+    }
   );
+}
+
+export async function ingestYouTube(url: string, name: string, keyAngle = "left_knee") {
+  return fetchAPI<{
+    status: string;
+    name?: string;
+    frames?: number;
+    phases?: number;
+    duration?: number;
+    error?: string;
+  }>("/api/references/from_youtube", {
+    method: "POST",
+    body: JSON.stringify({ url, name, key_angle: keyAngle }),
+  });
 }
 
 export async function stopCoaching() {

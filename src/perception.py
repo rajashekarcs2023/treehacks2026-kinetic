@@ -134,20 +134,30 @@ class PoseEstimator:
 
     def __init__(self, model_path: str = None):
         if model_path is None:
-            model_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "models", "pose_landmarker_lite.task"
-            )
+            # Prefer Full model (more accurate), fall back to Lite
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            full_path = os.path.join(base_dir, "models", "pose_landmarker_full.task")
+            lite_path = os.path.join(base_dir, "models", "pose_landmarker_lite.task")
+            if os.path.exists(full_path):
+                model_path = full_path
+                print("[Pose] Using Full model (higher accuracy)")
+            else:
+                model_path = lite_path
+                print("[Pose] Using Lite model")
 
         self._latest_result = None
         self._start_time = time.time()
+
+        # Temporal smoothing state (EMA filter per landmark)
+        self._smooth_alpha = 0.4  # 0 = full smoothing, 1 = no smoothing
+        self._prev_landmarks: dict[int, list[tuple[float, float, float]]] = {}  # pose_idx -> landmarks
 
         options = PoseLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=model_path),
             running_mode=RunningMode.LIVE_STREAM,
             num_poses=3,
-            min_pose_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_pose_detection_confidence=0.4,
+            min_tracking_confidence=0.6,
             result_callback=self._on_result,
         )
         self._landmarker = PoseLandmarker.create_from_options(options)
@@ -166,18 +176,38 @@ class PoseEstimator:
             pass  # skip frames that arrive out of order
 
     def get_landmarks(self, width: int, height: int) -> list[PoseLandmarks]:
-        """Get the latest pose landmarks as PoseLandmarks objects."""
+        """Get the latest pose landmarks as PoseLandmarks objects.
+        Applies EMA temporal smoothing to reduce jitter."""
         if self._latest_result is None or not self._latest_result.pose_landmarks:
             return []
 
         results = []
-        for pose_lms in self._latest_result.pose_landmarks:
-            points = []
+        for pose_idx, pose_lms in enumerate(self._latest_result.pose_landmarks):
+            raw_points = []
             for lm in pose_lms:
-                px = int(lm.x * width)
-                py = int(lm.y * height)
+                px = lm.x * width
+                py = lm.y * height
                 vis = lm.visibility if hasattr(lm, 'visibility') else 1.0
-                points.append((px, py, vis))
+                raw_points.append((px, py, vis))
+
+            # Apply EMA temporal smoothing
+            if pose_idx in self._prev_landmarks and len(self._prev_landmarks[pose_idx]) == len(raw_points):
+                prev = self._prev_landmarks[pose_idx]
+                smoothed = []
+                alpha = self._smooth_alpha
+                for i, (rx, ry, rv) in enumerate(raw_points):
+                    px_prev, py_prev, _ = prev[i]
+                    # Only smooth if visibility is decent (>0.3)
+                    if rv > 0.3:
+                        sx = alpha * rx + (1 - alpha) * px_prev
+                        sy = alpha * ry + (1 - alpha) * py_prev
+                    else:
+                        sx, sy = rx, ry
+                    smoothed.append((sx, sy, rv))
+                raw_points = smoothed
+            self._prev_landmarks[pose_idx] = raw_points
+
+            points = [(int(x), int(y), v) for x, y, v in raw_points]
 
             # Compute hip midpoint
             hip_mid = None

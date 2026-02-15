@@ -278,9 +278,9 @@ class SpatialEngine:
                     base_options=MpBaseOptions(model_asset_path=HAND_MODEL_PATH),
                     running_mode=mp.tasks.vision.RunningMode.LIVE_STREAM,
                     num_hands=2,
-                    min_hand_detection_confidence=0.5,
-                    min_hand_presence_confidence=0.5,
-                    min_tracking_confidence=0.5,
+                    min_hand_detection_confidence=0.4,
+                    min_hand_presence_confidence=0.4,
+                    min_tracking_confidence=0.6,
                     result_callback=_hand_result_callback,
                 )
                 hand_landmarker = mp_vision.HandLandmarker.create_from_options(hand_options)

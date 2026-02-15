@@ -2,7 +2,7 @@
 AEGIS DGX Inference Server — Whole-Body Pose Estimation on NVIDIA DGX Spark.
 
 Uses YOLOv8n-pose for 17-keypoint body pose + ultralytics framework,
-running on NVIDIA DGX Spark's 72-core Grace ARM CPU.
+running on NVIDIA DGX Spark's Grace ARM CPU (aarch64, 20 cores).
 
 Usage:
     python inference_server.py [--port 8080]

@@ -327,6 +327,53 @@ def get_pose_landmarks(
 
 
 @mcp.tool(tags={"pose"}, annotations={"readOnlyHint": True})
+def get_hand_landmarks() -> dict:
+    """Get hand landmarks for all detected hands (21 landmarks per hand).
+
+    Each hand has 21 landmarks covering all finger joints:
+    0=wrist, 1-4=thumb(CMC,MCP,IP,TIP), 5-8=index(MCP,PIP,DIP,TIP),
+    9-12=middle, 13-16=ring, 17-20=pinky.
+    Returns handedness (Left/Right) and all landmark positions.
+    Use this for sign language coaching and hand gesture analysis.
+    """
+    _inc_tool_calls()
+    if _engine is None:
+        return {"error": "Engine not initialized"}
+
+    state = _engine.get_state()
+    hands = state.get("hands", [])
+    if not hands:
+        return {"hands_detected": 0, "hands": [], "note": "No hands detected in frame"}
+
+    FINGER_NAMES = {
+        0: "wrist",
+        1: "thumb_cmc", 2: "thumb_mcp", 3: "thumb_ip", 4: "thumb_tip",
+        5: "index_mcp", 6: "index_pip", 7: "index_dip", 8: "index_tip",
+        9: "middle_mcp", 10: "middle_pip", 11: "middle_dip", 12: "middle_tip",
+        13: "ring_mcp", 14: "ring_pip", 15: "ring_dip", 16: "ring_tip",
+        17: "pinky_mcp", 18: "pinky_pip", 19: "pinky_dip", 20: "pinky_tip",
+    }
+
+    result = []
+    for hand in hands:
+        landmarks = []
+        for i, lm in enumerate(hand.get("landmarks", [])):
+            landmarks.append({
+                "index": i,
+                "name": FINGER_NAMES.get(i, f"landmark_{i}"),
+                "x": lm["x"],
+                "y": lm["y"],
+                "z": lm["z"],
+            })
+        result.append({
+            "handedness": hand.get("handedness", "unknown"),
+            "landmarks": landmarks,
+        })
+
+    return {"hands_detected": len(result), "hands": result}
+
+
+@mcp.tool(tags={"pose"}, annotations={"readOnlyHint": True})
 def check_body_alignment(
     track_id: Annotated[int, "Tracking ID of the person"],
     exercise: Annotated[Optional[str], "Optional exercise name for context-specific checks (e.g. 'squat', 'warrior_ii', 'plank')"] = None,

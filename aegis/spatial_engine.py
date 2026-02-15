@@ -21,8 +21,14 @@ from src.motion import MotionModeler
 from src.risk import RiskEstimator
 from src.models import DangerZone, BBox
 
+import mediapipe as mp
+from mediapipe.tasks.python import vision as mp_vision
+from mediapipe.tasks.python import BaseOptions as MpBaseOptions
+
 from aegis import config
 from aegis.activity import classify_all
+
+HAND_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "hand_landmarker.task")
 
 
 class SpatialEngine:
@@ -60,6 +66,9 @@ class SpatialEngine:
 
         # Raw tracked persons (for MCP pose tools to access landmarks)
         self._tracked_persons: list = []
+
+        # Hand landmarks (list of hand results per frame)
+        self._hand_landmarks: list = []
 
     def push_frame(self, frame: np.ndarray):
         """Push a frame from external source (e.g., phone WebSocket).
@@ -256,6 +265,31 @@ class SpatialEngine:
         motion = MotionModeler(prediction_horizon=config.PREDICTION_HORIZON)
         risk_estimator = RiskEstimator(ttc_threshold=config.TTC_THRESHOLD)
 
+        # Initialize MediaPipe Hand Landmarker
+        hand_landmarker = None
+        hand_results_latest = []
+        if os.path.exists(HAND_MODEL_PATH):
+            try:
+                def _hand_result_callback(result, output_image, timestamp_ms):
+                    nonlocal hand_results_latest
+                    hand_results_latest = result
+
+                hand_options = mp_vision.HandLandmarkerOptions(
+                    base_options=MpBaseOptions(model_asset_path=HAND_MODEL_PATH),
+                    running_mode=mp.tasks.vision.RunningMode.LIVE_STREAM,
+                    num_hands=2,
+                    min_hand_detection_confidence=0.5,
+                    min_hand_presence_confidence=0.5,
+                    min_tracking_confidence=0.5,
+                    result_callback=_hand_result_callback,
+                )
+                hand_landmarker = mp_vision.HandLandmarker.create_from_options(hand_options)
+                print("[SpatialEngine] Hand Landmarker initialized (21 landmarks/hand)")
+            except Exception as e:
+                print(f"[SpatialEngine] Hand Landmarker failed to init: {e}")
+        else:
+            print(f"[SpatialEngine] No hand model at {HAND_MODEL_PATH} — skipping hand tracking")
+
         cap = None
         width, height = 640, 480  # default for external source
 
@@ -309,6 +343,15 @@ class SpatialEngine:
                 persons = classify_all(persons)
                 risk_events = risk_estimator.assess(persons, self._danger_zones)
 
+                # ── Run hand tracking ───────────────────────────────────
+                if hand_landmarker is not None:
+                    try:
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                        hand_landmarker.detect_async(mp_image, int(now * 1000))
+                    except Exception:
+                        pass
+
                 # ── Build structured state ───────────────────────────────
                 state = self._build_state(persons, risk_events, objects, width, height, fps, now)
 
@@ -326,16 +369,32 @@ class SpatialEngine:
                         except Exception as e:
                             print(f"[SpatialEngine] Event callback error: {e}")
 
+                # ── Build hand landmark data ────────────────────────────
+                hands_data = []
+                if hand_results_latest and hasattr(hand_results_latest, 'hand_landmarks'):
+                    for i, hand_lms in enumerate(hand_results_latest.hand_landmarks):
+                        handedness = "unknown"
+                        if hand_results_latest.handedness and i < len(hand_results_latest.handedness):
+                            handedness = hand_results_latest.handedness[i][0].category_name
+                        landmarks = []
+                        for lm in hand_lms:
+                            landmarks.append({"x": round(lm.x, 4), "y": round(lm.y, 4), "z": round(lm.z, 4)})
+                        hands_data.append({"handedness": handedness, "landmarks": landmarks})
+                state["hands"] = hands_data
+
                 # ── Update shared state ──────────────────────────────────
                 with self._lock:
                     self._state = state
                     self._frame = frame  # keep reference (no copy for speed)
                     self._tracked_persons = list(persons)  # raw TrackedPerson objects
+                    self._hand_landmarks = hands_data
 
         finally:
             if cap is not None:
                 cap.release()
             perception.close()
+            if hand_landmarker is not None:
+                hand_landmarker.close()
             print("[SpatialEngine] Stopped")
 
     # ── Serialization helpers ────────────────────────────────────────────

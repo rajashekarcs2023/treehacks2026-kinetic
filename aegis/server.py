@@ -133,31 +133,29 @@ async def _run_coaching_intelligence():
             
             if check_count == 1:
                 prompt = (
-                    f"You are a real-time AI skill coach. A session just started.\n"
-                    f"{data_block}\n\n"
-                    "Respond with ONLY a brief encouraging opening (1 sentence). "
-                    "Example: 'Let's work on your boxing jab — I'll be watching your form!'\n"
-                    "NO reasoning, NO tool calls, JUST the coaching sentence."
+                    f"[COACHING SESSION STARTED]\n{data_block}\n\n"
+                    "Use your coaching tools to analyze the user's starting position, then "
+                    "give a brief encouraging opening sentence to speak aloud. "
+                    "Keep your spoken output to 1 sentence max."
                 )
+                agent_action = "session_start"
             elif current_reps > _last_agent_rep_count:
                 _last_agent_rep_count = current_reps
                 prompt = (
-                    f"You are a real-time AI skill coach. The user just finished rep {current_reps}.\n"
-                    f"{data_block}\n\n"
-                    "Give specific, actionable form feedback (1-2 sentences max). "
-                    "Be encouraging but specific about what to fix.\n"
-                    "Example: 'Good power on that jab! Try rotating your hips more for extra reach.'\n"
-                    "NO reasoning, JUST the coaching feedback."
+                    f"[REP {current_reps} COMPLETED]\n{data_block}\n\n"
+                    "Analyze the user's form using your coaching and perception tools. "
+                    "Check for compensation patterns if score is below 70. "
+                    "Then give specific, actionable feedback (1-2 sentences) to speak aloud."
                 )
+                agent_action = "rep_feedback"
             else:
                 if trend == "declining":
                     prompt = (
-                        f"You are a real-time AI skill coach. Scores are declining.\n"
-                        f"{data_block}\n\n"
-                        "Give a motivating correction (1 sentence). "
-                        "Example: 'I notice your form dropping — focus on keeping your guard up.'\n"
-                        "NO reasoning, JUST the coaching sentence."
+                        f"[SCORES DECLINING]\n{data_block}\n\n"
+                        "Use your perception tools to check posture and alignment. "
+                        "Identify the issue and give a motivating correction (1 sentence) to speak aloud."
                     )
+                    agent_action = "correction"
                 else:
                     # Skip periodic if nothing interesting
                     await asyncio.sleep(10)
@@ -180,12 +178,19 @@ async def _run_coaching_intelligence():
                 if speech_text and len(speech_text) > 5:
                     print(f"[Agent] Coach says: {speech_text}")
                     
-                    # Send to frontend as text overlay
+                    # Get recent tool calls from agent for UI visibility
+                    recent_tools = agent.get_tool_log(last_n=5) if hasattr(agent, 'get_tool_log') else []
+                    tool_names = [t.get("tool", "") for t in recent_tools][-3:]
+                    
+                    # Send to frontend as text overlay with agent orchestration metadata
                     if _coaching_ws_clients:
                         agent_msg = json.dumps({
                             "type": "agent_feedback",
                             "data": speech_text,
                             "check": check_count,
+                            "agent_action": agent_action,
+                            "tools_used": tool_names,
+                            "sub_agents": ["perception-agent", "coach-agent"] if any("compare" in t or "posture" in t or "alignment" in t for t in tool_names) else ["coach-agent"],
                         })
                         for client in list(_coaching_ws_clients):
                             try:

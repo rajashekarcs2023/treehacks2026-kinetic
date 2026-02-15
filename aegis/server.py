@@ -58,6 +58,7 @@ from aegis.skill_graph import GraphStore, SkillGraph
 from aegis.data_collector import DataCollector
 from aegis.hybrid_scorer import HybridScorer
 from aegis.memory import MemoryStore
+from aegis.rooms import RoomManager
 
 app = FastAPI(title="AEGIS — AI Skill Coach")
 app.add_middleware(
@@ -82,6 +83,7 @@ _graph_store = GraphStore()
 _data_collector = DataCollector()
 _hybrid_scorer = HybridScorer()
 _memory_store = MemoryStore()
+_room_manager = RoomManager()
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -582,6 +584,146 @@ async def coaching_angles():
             }
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ROOM APIs — Multiplayer coaching rooms
+# ═══════════════════════════════════════════════════════════════════════
+
+class RoomCreateRequest(BaseModel):
+    skill_name: str
+    display_name: str = "Player 1"
+
+class RoomJoinRequest(BaseModel):
+    room_code: str
+    display_name: str = "Player 2"
+
+@app.post("/api/rooms/create")
+async def create_room(req: RoomCreateRequest):
+    """Create a new coaching room. Returns room code to share."""
+    room = _room_manager.create_room(req.skill_name)
+    participant = room.add_participant("host", req.display_name)
+    return {
+        "room_code": room.code,
+        "skill": room.skill_name,
+        "user_id": "host",
+        "participants": room.participant_count,
+    }
+
+@app.post("/api/rooms/join")
+async def join_room(req: RoomJoinRequest):
+    """Join an existing room by code."""
+    import uuid
+    user_id = f"user_{uuid.uuid4().hex[:6]}"
+    participant = _room_manager.join_room(req.room_code, user_id, req.display_name)
+    if not participant:
+        return {"error": f"Room '{req.room_code}' not found or closed"}
+    room = _room_manager.get_room(req.room_code)
+    return {
+        "room_code": req.room_code,
+        "skill": room.skill_name,
+        "user_id": user_id,
+        "participants": room.participant_count,
+        "leaderboard": room.get_leaderboard(),
+    }
+
+@app.get("/api/rooms/{code}")
+async def get_room(code: str):
+    """Get room status and leaderboard."""
+    room = _room_manager.get_room(code)
+    if not room:
+        return {"error": "Room not found"}
+    return room.get_comparison_data()
+
+@app.get("/api/rooms/{code}/leaderboard")
+async def room_leaderboard(code: str):
+    """Get live leaderboard for a room."""
+    room = _room_manager.get_room(code)
+    if not room:
+        return {"error": "Room not found"}
+    return {"leaderboard": room.get_leaderboard()}
+
+@app.post("/api/rooms/{code}/compare")
+async def room_compare(code: str):
+    """Use Claude Agent SDK to compare all participants' performance.
+    
+    This is the multi-agent orchestration: Claude analyzes each user's
+    coaching data and generates comparative feedback.
+    """
+    room = _room_manager.get_room(code)
+    if not room:
+        return {"error": "Room not found"}
+    
+    comparison = room.get_comparison_data()
+    
+    if not agent:
+        return {**comparison, "agent_analysis": "Agent not available"}
+    
+    # Build comparison prompt for Claude
+    participants_text = ""
+    for i, p in enumerate(comparison["leaderboard"], 1):
+        participants_text += (
+            f"\n#{i} {p['display_name']}: "
+            f"{p.get('reps_completed', 0)} reps, "
+            f"avg {p.get('avg_score', 0):.0f}/100, "
+            f"best {p.get('best_score', 0):.0f}/100, "
+            f"trend: {p.get('trend', 'n/a')}"
+        )
+    
+    try:
+        analysis = await agent.send_message(
+            f"You are judging a friendly coaching competition.\n"
+            f"Skill: {comparison['skill']}\n"
+            f"Duration: {comparison['duration']:.0f}s\n"
+            f"Participants:{participants_text}\n\n"
+            "Give a fun, encouraging comparison (3-4 sentences). "
+            "Highlight each person's strength. Declare a winner if clear. "
+            "Keep it friendly and motivating.\n"
+            "NO reasoning, JUST the comparison text."
+        )
+        comparison["agent_analysis"] = analysis
+    except Exception as e:
+        comparison["agent_analysis"] = f"Analysis unavailable: {e}"
+    
+    return comparison
+
+@app.post("/api/rooms/{code}/close")
+async def close_room(code: str):
+    """Close a room and get final comparison with Claude analysis."""
+    result = _room_manager.close_room(code)
+    if not result:
+        return {"error": "Room not found"}
+    
+    # Get Claude's final analysis
+    if agent and len(result.get("leaderboard", [])) > 1:
+        try:
+            participants_text = ""
+            for i, p in enumerate(result["leaderboard"], 1):
+                participants_text += (
+                    f"\n#{i} {p['display_name']}: "
+                    f"{p.get('reps_completed', 0)} reps, "
+                    f"avg {p.get('avg_score', 0):.0f}/100, "
+                    f"best {p.get('best_score', 0):.0f}/100"
+                )
+            
+            analysis = await agent.send_message(
+                f"Multiplayer coaching session ended!\n"
+                f"Skill: {result['skill']}\n"
+                f"Results:{participants_text}\n\n"
+                "Give the final verdict (2-3 sentences). "
+                "Declare a winner, compliment both players, suggest what to work on next.\n"
+                "NO reasoning, JUST the verdict."
+            )
+            result["agent_verdict"] = analysis
+        except Exception:
+            pass
+    
+    return result
+
+@app.get("/api/rooms")
+async def list_rooms():
+    """List all active rooms."""
+    return {"rooms": _room_manager.list_rooms()}
 
 
 # ═══════════════════════════════════════════════════════════════════════

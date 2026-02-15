@@ -162,6 +162,37 @@ export async function sendMessage(message: string) {
   });
 }
 
+// ── Room APIs (Multiplayer) ───────────────────────────────────────
+export async function createRoom(skillName: string, displayName: string) {
+  return fetchAPI<{ room_code: string; skill: string; user_id: string; participants: number }>("/api/rooms/create", {
+    method: "POST",
+    body: JSON.stringify({ skill_name: skillName, display_name: displayName }),
+  });
+}
+
+export async function joinRoom(roomCode: string, displayName: string) {
+  return fetchAPI<{ room_code: string; skill: string; user_id: string; participants: number; leaderboard: unknown[] }>("/api/rooms/join", {
+    method: "POST",
+    body: JSON.stringify({ room_code: roomCode, display_name: displayName }),
+  });
+}
+
+export async function getRoomStatus(code: string) {
+  return fetchAPI<{ room_code: string; skill: string; participant_count: number; leaderboard: unknown[] }>(`/api/rooms/${code}`);
+}
+
+export async function getRoomLeaderboard(code: string) {
+  return fetchAPI<{ leaderboard: unknown[] }>(`/api/rooms/${code}/leaderboard`);
+}
+
+export async function compareRoom(code: string) {
+  return fetchAPI<{ leaderboard: unknown[]; agent_analysis: string }>(`/api/rooms/${code}/compare`, { method: "POST" });
+}
+
+export async function closeRoom(code: string) {
+  return fetchAPI<{ leaderboard: unknown[]; agent_verdict?: string }>(`/api/rooms/${code}/close`, { method: "POST" });
+}
+
 // ── WebSocket helpers ──────────────────────────────────────────────
 export function createCoachingWS(): WebSocket {
   const wsBase = API_BASE.replace(/^http/, "ws");

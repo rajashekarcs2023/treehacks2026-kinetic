@@ -461,9 +461,10 @@ function CoachContent() {
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         micStreamRef.current = stream;
 
-        // Audio context for mic processing
-        audioCtx = new AudioContext({ sampleRate: 16000 });
+        // Audio context for mic processing (use native rate, we'll resample)
+        audioCtx = new AudioContext();
         audioContextRef.current = audioCtx;
+        const nativeSR = audioCtx.sampleRate; // typically 44100 or 48000
         micSource = audioCtx.createMediaStreamSource(stream);
 
         // ScriptProcessor to get raw PCM (deprecated but widely supported)
@@ -471,10 +472,14 @@ function CoachContent() {
         scriptNode.onaudioprocess = (e) => {
           if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
           const input = e.inputBuffer.getChannelData(0);
-          // Convert float32 → int16 PCM
-          const pcm16 = new Int16Array(input.length);
-          for (let i = 0; i < input.length; i++) {
-            const s = Math.max(-1, Math.min(1, input[i]));
+          // Downsample from native rate to 16kHz
+          const TARGET_SR = 16000;
+          const ratio = nativeSR / TARGET_SR;
+          const outLen = Math.floor(input.length / ratio);
+          const pcm16 = new Int16Array(outLen);
+          for (let i = 0; i < outLen; i++) {
+            const srcIdx = Math.floor(i * ratio);
+            const s = Math.max(-1, Math.min(1, input[srcIdx]));
             pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
           // Send as base64

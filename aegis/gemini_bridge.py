@@ -82,6 +82,7 @@ class GeminiBridge:
         # State
         self._receive_task = None
         self._send_task = None
+        self._session_cm = None  # async context manager for session
 
     @property
     def is_connected(self) -> bool:
@@ -117,10 +118,11 @@ class GeminiBridge:
                 ),
             )
 
-            self._session = await self._client.aio.live.connect(
+            self._session_cm = self._client.aio.live.connect(
                 model=config.GEMINI_MODEL,
                 config=live_config,
             )
+            self._session = await self._session_cm.__aenter__()
             self._connected = True
             print(f"[GeminiBridge] Connected to Gemini Live ({config.GEMINI_MODEL})")
 
@@ -144,11 +146,12 @@ class GeminiBridge:
                 pass
         if self._send_task:
             self._send_task.cancel()
-        if self._session:
+        if self._session_cm:
             try:
-                await self._session.close()
+                await self._session_cm.__aexit__(None, None, None)
             except Exception:
                 pass
+            self._session_cm = None
             self._session = None
         print("[GeminiBridge] Disconnected")
 

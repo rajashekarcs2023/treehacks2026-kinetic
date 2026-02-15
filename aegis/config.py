@@ -38,7 +38,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── Gemini Live ─────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
-GEMINI_MODEL = "gemini-2.5-flash-preview-native-audio-dialog"
+GEMINI_MODEL = "gemini-2.5-flash-native-audio-latest"
 GEMINI_VOICE = "Kore"  # Options: Kore, Charon, Fenrir, Aoede, Puck, etc.
 
 # ── Server ──────────────────────────────────────────────────────────────

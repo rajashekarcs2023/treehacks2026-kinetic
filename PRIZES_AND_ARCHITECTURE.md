@@ -720,3 +720,358 @@ The main orchestrator agent can use ALL 45 tools + the `Task` tool to delegate t
 - Skill-specific coaching styles: PT (gentle), yoga (calm), sign language (precise), dance (energetic)
 - Natural coaching behaviors: counts reps, celebrates milestones, adapts to user requests
 
+---
+
+## Recent Updates (Session 3) — AI Expert + Motion Generation + Voice Overhaul
+
+### 4. Enhanced Pose Comparison Engine
+
+The original scoring used 10 joint angles with simple weighted averaging. Upgraded to a **hybrid triple-metric scoring system**:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│          ENHANCED POSE COMPARISON (3 scoring methods)         │
+│                                                               │
+│  INPUT: User skeleton (33 landmarks) + Expert reference       │
+│                                                               │
+│  METRIC 1: GAUSSIAN ANGLE SCORING (16 joint angles)          │
+│  ─────────────────────────────────────────────────            │
+│  • Expanded from 10 → 16 angles:                             │
+│    - Left/Right shoulder flexion + abduction                 │
+│    - Left/Right elbow flexion                                │
+│    - Left/Right hip flexion + abduction                      │
+│    - Left/Right knee flexion                                 │
+│    - Torso lean (sagittal + frontal)                         │
+│    - Neck flexion                                            │
+│    - Ankle dorsiflexion (L/R)                                │
+│  • Gaussian kernel: score = exp(-(Δθ)² / (2σ²))             │
+│    σ tuned per joint (tighter for knees, looser for torso)   │
+│  • Weighted by biomechanical importance per exercise          │
+│                                                               │
+│  METRIC 2: COSINE SPATIAL SIMILARITY                         │
+│  ─────────────────────────────────────                       │
+│  • Flattens normalized skeleton to vector                    │
+│  • cos_sim = dot(user, expert) / (|user| × |expert|)        │
+│  • Captures overall pose shape similarity                    │
+│  • Fast O(n) computation                                     │
+│                                                               │
+│  METRIC 3: COCO OKS (Object Keypoint Similarity)            │
+│  ────────────────────────────────────────────────            │
+│  • Industry-standard metric from COCO benchmark              │
+│  • Per-keypoint Gaussian falloff based on distance            │
+│  • σ_k values calibrated per joint type                      │
+│  • OKS = Σ exp(-d²/(2s²σ²)) / n_visible                    │
+│                                                               │
+│  FINAL SCORE: 0.5 × Gaussian + 0.3 × Cosine + 0.2 × OKS   │
+│                                                               │
+│  OUTPUT: {score: 0-100, per_joint_scores, corrections[]}     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 5. AI Expert Generation (No Video Required)
+
+Users can coach ANY skill without recording an expert video. Three-tier resolution:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│            AI EXPERT GENERATION PIPELINE                      │
+│                                                               │
+│  User says: "teach me a push up"                             │
+│       │                                                       │
+│       ▼                                                       │
+│  TIER 1: SEMANTIC ALIAS LOOKUP (0ms, O(1))                   │
+│  ──────────────────────────────────────────                   │
+│  • 53 aliases → 10 canonical exercises                       │
+│  • "push up", "pushup", "press up" → pushup template         │
+│  • "back squat", "barbell squat" → squat template            │
+│  • "ohp", "military press" → shoulder_press template          │
+│  • Instant, no API call, no compute                          │
+│       │                                                       │
+│       ▼ (not found in aliases)                               │
+│  TIER 2: CLAUDE SEMANTIC MAPPING (~0.5s)                     │
+│  ──────────────────────────────────────                      │
+│  • Claude receives list of canonical exercises               │
+│  • Prompt: "Does 'kettlebell swing' match any?"              │
+│  • Claude responds: "deadlift" or "GENERATE"                 │
+│  • Auto-caches new alias for next time                       │
+│  • Model: claude-sonnet-4-20250514, max_tokens: 50           │
+│       │                                                       │
+│       ▼ (truly novel skill)                                  │
+│  TIER 3: CLAUDE ANGLE GENERATION (~1-2s)                     │
+│  ─────────────────────────────────────────                   │
+│  • Claude generates biomechanically correct joint angles     │
+│  • Multi-phase: preparation → execution → peak → recovery    │
+│  • Returns: angles per phase, coaching cues, primary angle   │
+│  • Cached as new canonical exercise for future use           │
+│       │                                                       │
+│       ▼ (if DGX/Modal available)                             │
+│  TIER 4: 3D MOTION GENERATION (~5-15s)                       │
+│  ──────────────────────────────────                          │
+│  • HY-Motion 1.0-Lite on Modal A100 GPU                     │
+│  • Text → 3D skeleton sequence (SMPL 22 joints)             │
+│  • Projected to MediaPipe 33-point format                    │
+│  • Full motion dynamics, not just static poses               │
+│                                                               │
+│  10 CANONICAL EXERCISES:                                     │
+│  squat, pushup, lunge, deadlift, shoulder_press,             │
+│  bicep_curl, plank, jumping_jack, warrior_ii, tree_pose      │
+│                                                               │
+│  Each template includes:                                     │
+│  • 4 phases with ideal joint angles (degrees)                │
+│  • Coaching cues per phase                                   │
+│  • Primary angle for rep counting                            │
+│  • Display name and exercise category                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Integration**: When `/api/coaching/start` is called without a reference video, the AI expert pipeline auto-generates the reference skeleton. Users only need to name the skill.
+
+### 6. DGX Spark + Modal GPU Infrastructure
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│           NVIDIA DGX SPARK + MODAL A100 PIPELINE             │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────┐     │
+│  │               DGX SPARK (gx10-eb94)                  │     │
+│  │                                                      │     │
+│  │  Hardware:                                           │     │
+│  │  • NVIDIA GB10 Superchip (Grace ARM + Blackwell GPU) │     │
+│  │  • 20 ARM cores (aarch64)                            │     │
+│  │  • GPU present but PyTorch sm_121 not yet supported  │     │
+│  │  • Running: Ubuntu, Python 3.12, PyTorch 2.11+cu126  │     │
+│  │                                                      │     │
+│  │  Endpoint 1: POST /predict (YOLOv8n-pose)           │     │
+│  │  • 17 body keypoints per person                      │     │
+│  │  • Real-time pose estimation from camera frames      │     │
+│  │  • CPU inference (ARM optimized)                     │     │
+│  │                                                      │     │
+│  │  Endpoint 2: POST /generate_motion                  │     │
+│  │  • Proxies to Modal A100 for motion generation       │     │
+│  │  • Text prompt → 3D skeleton sequence                │     │
+│  │  • Returns MediaPipe 33-point format                 │     │
+│  │                                                      │     │
+│  │  Endpoint 3: GET /health                            │     │
+│  │  • Reports pose model + motion model status          │     │
+│  └──────────────────────┬──────────────────────────────┘     │
+│                          │ HTTP proxy                         │
+│                          ▼                                    │
+│  ┌─────────────────────────────────────────────────────┐     │
+│  │               MODAL (Cloud GPU)                      │     │
+│  │                                                      │     │
+│  │  Hardware: NVIDIA A100 (40/80GB VRAM)               │     │
+│  │  Model: HY-Motion 1.0-Lite (Tencent, Dec 2025)     │     │
+│  │                                                      │     │
+│  │  • 0.46B parameters (DiT + Flow Matching)           │     │
+│  │  • SOTA text-to-3D motion generation                │     │
+│  │  • Trained on 3,000+ hours of motion data           │     │
+│  │  • 3-stage: pretrain → finetune → RLHF              │     │
+│  │  • Output: SMPL 22-joint skeleton sequences         │     │
+│  │  • Checkpoint: latest.ckpt (1.84 GB)                │     │
+│  │                                                      │     │
+│  │  Endpoint: POST /generate_endpoint                  │     │
+│  │  Input:  {"prompt": "a person doing a squat",       │     │
+│  │           "num_frames": 60}                          │     │
+│  │  Output: {"keypoints": [...33 pts × N frames],      │     │
+│  │           "generation_ms": 3500, ...}                │     │
+│  └─────────────────────────────────────────────────────┘     │
+│                                                               │
+│  WHY THIS ARCHITECTURE:                                      │
+│  • DGX Spark handles real-time pose (low latency)            │
+│  • Modal handles one-time motion generation (needs GPU)       │
+│  • DGX GPU (GB10 sm_121) not yet supported by PyTorch        │
+│  • Modal provides A100 GPUs on-demand ($530 credits avail.)  │
+│  • Single entry point: everything goes through DGX            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 7. Voice Architecture Evolution
+
+The voice system went through **3 major iterations** during development:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│              VOICE ARCHITECTURE EVOLUTION                      │
+│                                                               │
+│  v1: GEMINI LIVE (Initial)                                   │
+│  ─────────────────────────                                   │
+│  • Model: Gemini 2.5 Flash with native audio I/O             │
+│  • Protocol: WebSocket to Google's API                        │
+│  • Problem: Garbled output — Gemini REINTERPRETS coaching     │
+│    text instead of reading it. "Push your knees out"          │
+│    becomes "So basically you want to move laterally..."       │
+│  • Problem: No reliable interruption mechanism                │
+│  • Status: ABANDONED as primary, kept as fallback             │
+│                                                               │
+│  v2: OPENAI REALTIME (Current Primary)                       │
+│  ──────────────────────────────────────                      │
+│  • Model: GPT-4o Realtime Preview                            │
+│  • Voice: alloy (natural, warm, coaching-appropriate)         │
+│  • Protocol: WebSocket wss://api.openai.com/v1/realtime      │
+│  • Audio: PCM 16kHz input, PCM 24kHz output                  │
+│  • Key innovation: 3-layer interruption system                │
+│                                                               │
+│  VOICE IMPROVEMENTS MADE:                                    │
+│                                                               │
+│  Fix 1: SEQUENTIAL AUDIO (no overlap)                        │
+│  • Problem: Multiple coaching cues played simultaneously     │
+│  • Fix: _speak_lock (asyncio.Lock) ensures one voice at      │
+│    a time. Queue clears when user speaks.                     │
+│                                                               │
+│  Fix 2: PROACTIVE + REACTIVE BALANCE                         │
+│  • Problem: AI must count reps proactively but pause for     │
+│    user questions instantly                                   │
+│  • Fix: speak() triggers response.create (audible)           │
+│    inject_coaching_context() is SILENT (background only)      │
+│    GPT-4o absorbs context without speaking                    │
+│                                                               │
+│  Fix 3: VAD-BASED INTERRUPTION (50ms)                        │
+│  • Server-side VAD detects user speech → speech_started       │
+│  • _user_speaking = True → all coaching paused               │
+│  • Audio queue cleared, speak() returns False                 │
+│  • User finishes → GPT-4o responds with full context         │
+│                                                               │
+│  Fix 4: PUNCHY COACHING PROMPTS                              │
+│  • Max 15 words per coaching cue                             │
+│  • Style: "Knees out! Good depth. Three more."               │
+│  • No filler, no "I notice that...", no disclaimers          │
+│  • Emotional tone adapts: encouraging, firm, celebratory     │
+│                                                               │
+│  Fix 5: BROWSER TTS FALLBACK                                 │
+│  • If OpenAI API unavailable: browser speechSynthesis         │
+│  • Automatic detection and failover                          │
+│  • Works offline — no API key needed                          │
+│                                                               │
+│  Fix 6: SESSION MEMORY                                       │
+│  • Last session summary injected on coaching start            │
+│  • "Last time: avg 78 on squats, knee alignment was issue"   │
+│  • Personalized from first rep                               │
+│                                                               │
+│  v3: BROWSER SPEECH SYNTHESIS (Fallback)                     │
+│  ────────────────────────────────────────                    │
+│  • Uses Web Speech API (window.speechSynthesis)              │
+│  • Zero latency, works offline                               │
+│  • Lower quality but reliable backup                         │
+│  • Auto-activates if OpenAI connection fails                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 8. Model Zoo — Complete List
+
+| Model | Purpose | Location | Size | FPS/Latency |
+|---|---|---|---|---|
+| **YOLOv8n-pose** | 17-keypoint pose estimation | DGX Spark (CPU) | 6.5 MB | ~15 FPS |
+| **YOLO11n** | Person detection | Local (M4 Pro) | 5.4 MB | ~15 FPS |
+| **MediaPipe PoseLandmarker Lite** | 33-point skeleton | Local (M4 Pro) | 5.6 MB | 30 FPS async |
+| **MediaPipe HandLandmarker** | 21-point hand skeleton | Local (M4 Pro) | ~5 MB | 30 FPS async |
+| **Depth Anything V2 Small** | Monocular depth | Local (MPS GPU) | ~50 MB | 22 FPS |
+| **ByteTrack** | Multi-person tracking | Local (CPU) | N/A | 15 FPS |
+| **HY-Motion 1.0-Lite** | Text → 3D motion (SOTA) | Modal A100 GPU | 1.84 GB | ~3-5s/gen |
+| **Claude Sonnet 4** | Agent orchestration, coaching | Anthropic API | Cloud | ~0.5-1s |
+| **GPT-4o Realtime** | Bidirectional voice coaching | OpenAI API | Cloud | ~200ms |
+| **Custom 1D CNN** | Local pose scoring | Local (NumPy) | 14K params | 0.15ms |
+
+### 9. Updated Full Pipeline (End-to-End)
+
+```
+USER OPENS APP → Selects skill (or describes one)
+      │
+      ├── Has expert video? ──YES──→ Extract skeleton from video
+      │                              (MediaPipe 33-point)
+      │
+      └── No video? ──→ AI EXPERT GENERATION
+                         │
+                         ├─ Alias lookup (instant)
+                         ├─ Claude semantic map (~0.5s)
+                         ├─ Claude angle gen (~1s)
+                         └─ HY-Motion 1.0 on Modal (~5s)
+                                    │
+                                    ▼
+                         Expert skeleton ready
+      │
+      ▼
+USER STARTS COACHING SESSION
+      │
+      │ Camera frames (WebSocket /ws/video, 30fps)
+      ▼
+LOCAL CV PIPELINE (M4 Pro)
+      │ YOLO11n → MediaPipe Pose (33 pts) → MediaPipe Hands (21 pts)
+      │ ByteTrack (person ID) → Depth Anything V2 (depth map)
+      ▼
+POSE COMPARISON ENGINE
+      │ Normalize → 16 joint angles → DTW align → Triple scoring
+      │ Phase detect → Rep count → Compensation detect
+      │ Score: 0.5×Gaussian + 0.3×Cosine + 0.2×OKS
+      ▼
+COACHING INTELLIGENCE LOOP (every 10s)
+      │ Gather: reps, avg_score, trend, top_corrections
+      │ Build prompt (15 words max, punchy)
+      ▼
+CLAUDE AGENT SDK (orchestrator → coach-agent → perception-agent)
+      │ 3 sub-agents, 44 MCP tools, hooks (safety, audit, stop)
+      │ Returns: "Knees out! Great depth. Two more."
+      ├────────────────────────────┐
+      ▼                            ▼
+OPENAI REALTIME (GPT-4o)    WEBSOCKET /ws/coaching
+│ 3-layer interruption       │ Score ring, corrections,
+│ alloy voice, 24kHz         │ phase indicator, rep count
+│ Proactive + reactive       │
+      ▼                            ▼
+USER HEARS COACHING        USER SEES FEEDBACK
+"Knees out! Two more."    Score: 82 | Reps: 5 | ↑ improving
+
+      ║
+      ║ Optional: Multiplayer
+      ▼
+PRACTICE ROOM (rooms.py)
+│ Room code → dual coaching sessions → leaderboard
+│ Claude compares both players → final verdict
+```
+
+---
+
+## Updated Tech Stack Summary
+
+| Layer | Technology | Why |
+|---|---|---|
+| **AI Orchestration** | Claude Agent SDK (claude-agent-sdk v0.1.36) | Sub-agents, hooks, MCP, multi-turn reasoning |
+| **AI Expert Gen** | Claude Sonnet 4 + Semantic aliases | Canonical templates + Claude mapping + angle generation |
+| **3D Motion Gen** | HY-Motion 1.0-Lite (Tencent, Dec 2025) on Modal A100 | SOTA text-to-3D motion, 0.46B params, flow matching |
+| **Voice AI** | OpenAI Realtime API (GPT-4o) + browser TTS fallback | 3-layer interruption, proactive coaching, 50ms VAD |
+| **Computer Vision** | YOLO11n + MediaPipe Pose + Hands + ByteTrack + Depth Anything V2 | 33 body + 21/hand landmarks, tracking, depth |
+| **Edge AI** | NVIDIA DGX Spark (YOLOv8n-pose) | 17-keypoint pose on ARM, proxy to Modal for motion gen |
+| **Pose Scoring** | Gaussian angles + Cosine spatial + COCO OKS (triple metric) | Biomechanically accurate, industry-standard metrics |
+| **Backend** | FastAPI + Python 3.12 | Async WebSockets, REST APIs, 44+ routes |
+| **Frontend** | Next.js 14 + React + TailwindCSS + shadcn/ui | Modern UI, responsive, dark mode |
+| **Protocol** | MCP (Model Context Protocol) | 46 tools for agent-tool communication |
+| **Scoring** | Custom 1D CNN (NumPy, 14K params) + Claude hybrid | 0.15ms local inference + Claude for nuance |
+| **GPU Cloud** | Modal.com ($530 credits, A100 on-demand) | Serverless GPU for HY-Motion inference |
+| **Skills** | Skill Graph (DAG) + PageRank recommendations | Progression tracking with prerequisites |
+
+---
+
+## Updated Codebase Stats
+
+| Module | File | Lines | Purpose |
+|---|---|---|---|
+| **Server** | `aegis/server.py` | ~1,500 | FastAPI, 44+ routes, 3 WebSockets, AI expert endpoints |
+| **AI Expert** | `aegis/ai_expert.py` | ~740 | Canonical templates, Claude mapping, DGX/Modal motion gen |
+| **MCP Tools** | `aegis/mcp_server.py` | 1,675 | 46 MCP tools (fastmcp) |
+| **SDK Tools** | `aegis/sdk_tools.py` | 493 | 45 tools wrapped for Claude Agent SDK |
+| **SDK Agent** | `aegis/sdk_agent.py` | 411 | Claude Agent SDK client + sub-agents + hooks |
+| **Pose Engine** | `aegis/pose_comparison.py` | ~1,100 | Triple-metric scoring, DTW, 16 angles, OKS |
+| **Skill Graph** | `aegis/skill_graph.py` | 648 | Skill DAG, PageRank recommendations |
+| **OpenAI Voice** | `aegis/openai_voice.py` | ~400 | Realtime voice + 3-layer interruption + TTS fallback |
+| **Gemini Bridge** | `aegis/gemini_bridge.py` | 319 | Gemini Live fallback voice |
+| **Data Collector** | `aegis/data_collector.py` | 587 | JSONL training data, session history |
+| **Goals** | `aegis/goals.py` | 472 | 12 goal presets, dynamic goals |
+| **Rooms** | `aegis/rooms.py` | 166 | Multiplayer room management |
+| **Spatial Engine** | `aegis/spatial_engine.py` | ~500 | YOLO + MediaPipe Pose + Hands + ByteTrack |
+| **DGX Server** | `dgx/inference_server.py` | ~500 | YOLOv8n-pose + Modal proxy endpoint |
+| **Modal Motion** | `dgx/modal_motion.py` | ~300 | HY-Motion 1.0-Lite on Modal A100 |
+| **DGX Client** | `aegis/dgx_client.py` | ~120 | DGX Spark HTTP client |
+| **Scorer** | `aegis/skill_scorer.py` | 384 | Local 1D CNN (14K params, NumPy) |
+| **Hybrid Scorer** | `aegis/hybrid_scorer.py` | 437 | Local 60% + Claude 40% scoring |
+| **Frontend** | `coach/page.tsx` | 1,261 | Coaching UI, practice mode, setup |
+| **TOTAL** | | **~17,000+** | |
+

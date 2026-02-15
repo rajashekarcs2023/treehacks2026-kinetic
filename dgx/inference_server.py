@@ -113,9 +113,18 @@ def load_motion_model():
         print(f"[DGX Motion] MLD model ready on {device}")
         return
 
+    # Priority 4: Modal endpoint (remote GPU — A100)
+    modal_url = os.environ.get("MODAL_MOTION_URL", "")
+    if modal_url:
+        motion_model = {"type": "modal", "url": modal_url}
+        motion_model_type = "modal"
+        print(f"[DGX Motion] Modal endpoint configured: {modal_url}")
+        return
+
     print("[DGX Motion] No motion generation model found — /generate_motion will return 503")
-    print("[DGX Motion] Install HY-Motion 1.0:")
-    print("[DGX Motion]   cd ~/aegis-dgx && git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git")
+    print("[DGX Motion] Options:")
+    print("[DGX Motion]   1. Deploy Modal: modal deploy dgx/modal_motion.py")
+    print("[DGX Motion]   2. Set MODAL_MOTION_URL=https://your--aegis-motion-generate-endpoint.modal.run")
 
 
 @app.get("/health")
@@ -249,6 +258,32 @@ SMPL_TO_MP33 = {
     17: 15,  # left_wrist
     18: 16,  # right_wrist
 }
+
+
+async def _run_modal_inference(prompt: str, num_frames: int = 60):
+    """Proxy motion generation to Modal's A100 GPU endpoint."""
+    import httpx
+
+    modal_url = motion_model["url"]
+    t0 = time.time()
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(
+            modal_url,
+            json={"prompt": prompt, "num_frames": num_frames},
+        )
+
+    if resp.status_code != 200:
+        return JSONResponse(status_code=resp.status_code, content={"error": f"Modal error: {resp.text[:300]}"})
+
+    data = resp.json()
+    data["proxy"] = "DGX Spark → Modal A100"
+    data["total_ms"] = round((time.time() - t0) * 1000, 1)
+
+    global motion_request_count
+    motion_request_count += 1
+
+    return data
 
 
 def _run_hymotion_inference(prompt: str, num_frames: int = 60) -> list:
@@ -447,6 +482,10 @@ async def generate_motion(req: MotionRequest):
     t0 = time.time()
 
     try:
+        # Modal: proxy to remote A100 GPU
+        if motion_model_type == "modal":
+            return await _run_modal_inference(req.prompt, req.num_frames)
+
         if motion_model_type == "hymotion":
             joints_3d = _run_hymotion_inference(req.prompt, req.num_frames)
         elif motion_model_type == "momask":

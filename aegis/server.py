@@ -41,6 +41,7 @@ import os
 import cv2
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -59,6 +60,13 @@ from aegis.hybrid_scorer import HybridScorer
 from aegis.memory import MemoryStore
 
 app = FastAPI(title="AEGIS — AI Skill Coach")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Shared state (set by main before starting server) ─────────────────
 engine = None  # SpatialEngine instance (set externally)
@@ -384,6 +392,39 @@ async def coaching_angles():
 async def list_references():
     """List all stored expert references."""
     return {"references": _reference_store.list_references()}
+
+
+class YouTubeIngestRequest(BaseModel):
+    url: str
+    name: str
+    key_angle: Optional[str] = "left_knee"
+
+
+@app.post("/api/references/from_youtube")
+async def ingest_from_youtube(req: YouTubeIngestRequest):
+    """Download a YouTube video, extract skeleton, save as coaching reference.
+
+    Body: { url, name, key_angle? }
+    Returns: reference metadata + frame count.
+    """
+    try:
+        from aegis.video_ingest import ingest_youtube
+        ref = await ingest_youtube(
+            url=req.url,
+            name=req.name,
+            key_angle=req.key_angle or "left_knee",
+            reference_store=_reference_store,
+        )
+        return {
+            "status": "success",
+            "name": ref.name,
+            "frames": len(ref.skeletons),
+            "phases": len(ref.phases),
+            "duration": ref.skeletons[-1].timestamp if ref.skeletons else 0,
+            "metadata": ref.metadata,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 @app.get("/api/references/{name}")
@@ -727,6 +768,73 @@ def _get_current_pose_points() -> list | None:
     return None
 
 
+# ── Zero-shot coaching helpers ─────────────────────────────────────────
+
+# Ideal angle ranges for common exercises (min, ideal, max)
+IDEAL_ANGLES = {
+    "Squat": {"left_knee": (70, 90, 110), "right_knee": (70, 90, 110), "left_hip": (70, 85, 100), "right_hip": (70, 85, 100)},
+    "Deadlift": {"left_knee": (140, 165, 180), "right_knee": (140, 165, 180), "left_hip": (80, 100, 120)},
+    "Push-up": {"left_elbow": (80, 90, 100), "right_elbow": (80, 90, 100), "left_shoulder": (40, 60, 80)},
+    "Lunge": {"left_knee": (75, 90, 105), "right_knee": (75, 90, 105), "left_hip": (80, 100, 120)},
+    "Plank": {"left_elbow": (160, 175, 180), "left_hip": (165, 175, 180), "left_knee": (165, 175, 180)},
+    "Warrior Pose": {"left_knee": (85, 95, 110), "right_knee": (160, 175, 180), "left_hip": (80, 90, 100)},
+    "Tree Pose": {"left_knee": (160, 175, 180), "right_knee": (40, 60, 90), "left_hip": (165, 175, 180)},
+    "Front Kick": {"left_knee": (150, 170, 180), "left_hip": (60, 80, 100)},
+    "Boxing Jab": {"left_elbow": (155, 170, 180), "left_shoulder": (70, 85, 100)},
+}
+
+# Fallback: general good posture
+_DEFAULT_IDEALS = {"left_knee": (90, 120, 170), "right_knee": (90, 120, 170), "left_hip": (90, 120, 170), "right_hip": (90, 120, 170), "left_elbow": (90, 130, 170), "right_elbow": (90, 130, 170)}
+
+
+def _zero_shot_score(skill_name: str, angles: dict) -> tuple[float, dict]:
+    """Score current angles against ideal ranges for the skill. Returns (score, deviations)."""
+    ideals = IDEAL_ANGLES.get(skill_name, _DEFAULT_IDEALS)
+    deviations = {}
+    scores = []
+
+    for joint, angle_val in angles.items():
+        if joint in ideals:
+            lo, ideal, hi = ideals[joint]
+        else:
+            lo, ideal, hi = _DEFAULT_IDEALS.get(joint, (90, 135, 180))
+
+        if lo <= angle_val <= hi:
+            dev = abs(angle_val - ideal)
+            score = max(0, 100 - dev * 2)
+        elif angle_val < lo:
+            dev = lo - angle_val
+            score = max(0, 70 - dev * 3)
+        else:
+            dev = angle_val - hi
+            score = max(0, 70 - dev * 3)
+
+        deviations[joint] = abs(angle_val - ideal)
+        scores.append(score)
+
+    overall = sum(scores) / len(scores) if scores else 50.0
+    return overall, deviations
+
+
+def _detect_simple_phase(angle_history: dict, primary_angle: str) -> str:
+    """Simple phase detection from angle history."""
+    history = angle_history.get(primary_angle, [])
+    if len(history) < 5:
+        return "Preparation"
+
+    recent = history[-5:]
+    trend = recent[-1] - recent[0]
+
+    if trend < -5:
+        return "Descending"
+    elif trend > 5:
+        return "Ascending"
+    elif recent[-1] < 110:
+        return "Bottom"
+    else:
+        return "Standing"
+
+
 # ── WebSocket: Video frames from phone ────────────────────────────────
 
 @app.websocket("/ws/video")
@@ -763,21 +871,53 @@ async def ws_video(websocket: WebSocket):
                     if pose_points:
                         if _recording_session and _recording_session.active:
                             _recording_session.add_frame(pose_points)
-                        if _coaching_session:
+                        if _coaching_session and _coaching_ws_clients:
                             coaching_result = _coaching_session.add_frame(pose_points)
-                            # Broadcast coaching data to WS clients
-                            if coaching_result and _coaching_ws_clients:
+                            if coaching_result:
+                                # Reference-based coaching
                                 coaching_msg = json.dumps({
                                     "type": "coaching",
                                     "data": coaching_result.to_dict(),
                                     "reps": _coaching_session.get_rep_count(),
                                     "frame": _coaching_session.frame_count,
                                 })
-                                for client in list(_coaching_ws_clients):
-                                    try:
-                                        await client.send_text(coaching_msg)
-                                    except Exception:
-                                        _coaching_ws_clients.remove(client)
+                            else:
+                                # Zero-shot coaching: score from joint angles
+                                skel = normalize_skeleton(pose_points)
+                                angles = skel.joint_angles
+                                score, devs = _zero_shot_score(
+                                    _coaching_session.skill_name, angles
+                                )
+                                worst = sorted(devs.items(), key=lambda x: -x[1])[:3]
+                                best = sorted(devs.items(), key=lambda x: x[1])[:3]
+                                phase = _detect_simple_phase(
+                                    _coaching_session._angle_history,
+                                    _coaching_session._primary_angle,
+                                )
+                                coaching_msg = json.dumps({
+                                    "type": "coaching",
+                                    "data": {
+                                        "similarity_score": round(score, 1),
+                                        "per_joint_deviation": {
+                                            k: round(v, 1) for k, v in devs.items()
+                                        },
+                                        "worst_joints": [
+                                            (j, round(d, 1)) for j, d in worst
+                                        ],
+                                        "best_joints": [
+                                            (j, round(d, 1)) for j, d in best
+                                        ],
+                                        "phase": phase,
+                                        "phase_score": round(score, 1),
+                                    },
+                                    "reps": _coaching_session.get_rep_count(),
+                                    "frame": _coaching_session.frame_count,
+                                })
+                            for client in list(_coaching_ws_clients):
+                                try:
+                                    await client.send_text(coaching_msg)
+                                except Exception:
+                                    _coaching_ws_clients.remove(client)
 
                     # Send back spatial state every frame
                     state = engine.get_state()

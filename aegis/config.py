@@ -41,6 +41,9 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY
 GEMINI_MODEL = "gemini-2.5-flash-native-audio-latest"
 GEMINI_VOICE = "Kore"  # Options: Kore, Charon, Fenrir, Aoede, Puck, etc.
 
+# ── OpenAI Realtime Voice ──────────────────────────────────────────
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
 # ── Server ──────────────────────────────────────────────────────────────
 SERVER_HOST = os.environ.get("AEGIS_HOST", "0.0.0.0")
 SERVER_PORT = int(os.environ.get("AEGIS_PORT", "8000"))

@@ -308,17 +308,25 @@ class PerceptionLayer:
 
             # Attach pose to nearest person by centroid distance
             for pose_lm in pose_landmarks:
-                if pose_lm.hip_midpoint:
+                # Try hip midpoint first, fall back to nose
+                anchor = pose_lm.hip_midpoint or pose_lm.nose
+                if anchor is None and pose_lm.points:
+                    # Last resort: use average of all visible points
+                    vis_pts = [(x, y) for x, y, v in pose_lm.points if v > 0.3 and x > 0 and y > 0]
+                    if vis_pts:
+                        anchor = (sum(x for x, y in vis_pts) / len(vis_pts),
+                                  sum(y for x, y in vis_pts) / len(vis_pts))
+                if anchor:
                     best_person = None
                     best_dist = float('inf')
                     for person in persons:
-                        dx = person.bbox.cx - pose_lm.hip_midpoint[0]
-                        dy = person.bbox.cy - pose_lm.hip_midpoint[1]
+                        dx = person.bbox.cx - anchor[0]
+                        dy = person.bbox.cy - anchor[1]
                         dist = (dx ** 2 + dy ** 2) ** 0.5
                         if dist < best_dist:
                             best_dist = dist
                             best_person = person
-                    if best_person and best_dist < 200:
+                    if best_person and best_dist < 400:
                         best_person.pose = pose_lm
 
         # Depth estimation (optional)

@@ -70,6 +70,8 @@ function MonitorContent() {
   const [isStarting, setIsStarting] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [personsDetected, setPersonsDetected] = useState(0);
+  const [scenePersons, setScenePersons] = useState<{track_id: number; activity: string; activity_confidence: number; speed_px_per_sec: number; has_pose: boolean}[]>([]);
+  const [fps, setFps] = useState(0);
   const [toolCalls, setToolCalls] = useState<{name: string; args: string; timestamp: number; result?: string}[]>([]);
   const [decisions, setDecisions] = useState<{text: string; timestamp: number}[]>([]);
   const frameRef = useRef<HTMLImageElement>(null);
@@ -114,10 +116,17 @@ function MonitorContent() {
 
     const poll = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/monitoring/status`);
-        const data = await res.json();
+        const [statusRes, stateRes] = await Promise.all([
+          fetch(`${API_BASE}/api/monitoring/status`),
+          fetch(`${API_BASE}/api/state`),
+        ]);
+        const data = await statusRes.json();
         if (data.alerts) setAlerts(data.alerts);
         if (data.persons_detected !== undefined) setPersonsDetected(data.persons_detected);
+
+        const stateData = await stateRes.json();
+        if (stateData.persons) setScenePersons(stateData.persons);
+        if (stateData.fps !== undefined) setFps(stateData.fps);
       } catch { /* ignore */ }
     };
 
@@ -363,8 +372,44 @@ function MonitorContent() {
                 </div>
               </div>
 
+              {/* Scene Data — Tracked Persons */}
+              <div className="border-b border-border">
+                <div className="sticky top-0 bg-background z-10 flex items-center gap-2 p-3 border-b border-border">
+                  <Users className="h-4 w-4 text-green-500" />
+                  <span className="text-sm font-semibold">Tracked Persons</span>
+                  <span className="text-xs text-muted-foreground ml-auto">{fps.toFixed(0)} FPS</span>
+                </div>
+                <div className="p-2 space-y-1.5">
+                  {scenePersons.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-3">No persons in frame</p>
+                  ) : (
+                    scenePersons.map((p) => {
+                      const actColor = p.activity === "fallen" || p.activity === "lying_down"
+                        ? "text-red-400" : p.activity === "walking" || p.activity === "running"
+                        ? "text-green-400" : "text-white/70";
+                      return (
+                        <div key={p.track_id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/30 border border-border/50">
+                          <div className={`h-2.5 w-2.5 rounded-full ${p.activity === "fallen" ? "bg-red-500 animate-pulse" : p.activity === "walking" ? "bg-green-500" : "bg-gray-400"}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-white/90">P{p.track_id}</span>
+                              <span className={`text-xs font-semibold ${actColor}`}>{p.activity || "unknown"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                              <span>{p.speed_px_per_sec?.toFixed(0) || 0} px/s</span>
+                              <span>{(p.activity_confidence * 100).toFixed(0)}% conf</span>
+                              {p.has_pose && <span className="text-green-500">🦴 pose</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
               {/* Tool Calls Panel */}
-              <div className="h-[40%] overflow-y-auto">
+              <div className="flex-1 overflow-y-auto">
                 <div className="sticky top-0 bg-background z-10 flex items-center gap-2 p-3 border-b border-border">
                   <Terminal className="h-4 w-4 text-purple-500" />
                   <span className="text-sm font-semibold">Agent Activity</span>

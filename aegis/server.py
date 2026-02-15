@@ -1633,18 +1633,105 @@ async def monitoring_status():
 
 
 @app.get("/api/frame")
-async def get_frame():
-    """Return the current camera frame as JPEG for live feed display."""
+async def get_frame(annotated: bool = True):
+    """Return the current camera frame as JPEG with optional pose overlays."""
+    from fastapi.responses import Response
     if engine is None:
-        from fastapi.responses import Response
         return Response(content=b"", media_type="image/jpeg", status_code=204)
     frame = engine.get_frame()
     if frame is None:
-        from fastapi.responses import Response
         return Response(content=b"", media_type="image/jpeg", status_code=204)
-    _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-    from fastapi.responses import Response
+
+    if annotated:
+        frame = _annotate_frame(frame)
+
+    _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
     return Response(content=jpg.tobytes(), media_type="image/jpeg")
+
+
+# MediaPipe pose connections for skeleton drawing
+_POSE_CONNECTIONS = [
+    (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),  # arms
+    (11, 23), (12, 24), (23, 24),  # torso
+    (23, 25), (25, 27), (24, 26), (26, 28),  # legs
+    (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8),  # face
+    (15, 17), (15, 19), (16, 18), (16, 20),  # hands
+    (27, 29), (27, 31), (28, 30), (28, 32),  # feet
+]
+
+_ACTIVITY_COLORS = {
+    "fallen": (0, 0, 255),       # red
+    "lying_down": (0, 80, 255),  # orange
+    "walking": (0, 255, 0),      # green
+    "running": (0, 255, 255),    # yellow
+    "sitting": (255, 200, 0),    # cyan
+    "standing": (200, 200, 200), # gray
+    "crouching": (255, 100, 0),  # blue
+    "reaching": (255, 0, 255),   # magenta
+}
+
+
+def _annotate_frame(frame: np.ndarray) -> np.ndarray:
+    """Draw pose skeletons, bounding boxes, activity labels on the frame."""
+    out = frame.copy()
+    h, w = out.shape[:2]
+
+    if engine is None or not hasattr(engine, '_tracked_persons'):
+        return out
+
+    persons = engine._tracked_persons
+    state = engine.get_state()
+
+    for p in persons:
+        # Bounding box
+        color = _ACTIVITY_COLORS.get(p.activity, (200, 200, 200))
+        x1, y1, x2, y2 = int(p.bbox.x1), int(p.bbox.y1), int(p.bbox.x2), int(p.bbox.y2)
+        cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
+
+        # Activity label + ID
+        label = f"P{p.track_id} {p.activity or 'unknown'}"
+        if p.speed > 1:
+            label += f" {p.speed:.0f}px/s"
+        label_bg_y = max(y1 - 28, 0)
+        cv2.rectangle(out, (x1, label_bg_y), (x1 + len(label) * 10 + 8, label_bg_y + 24), color, -1)
+        cv2.putText(out, label, (x1 + 4, label_bg_y + 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv2.putText(out, label, (x1 + 4, label_bg_y + 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # Confidence bar
+        conf_w = int((x2 - x1) * p.activity_confidence)
+        cv2.rectangle(out, (x1, y2 + 2), (x1 + conf_w, y2 + 6), color, -1)
+
+        # Pose skeleton — p.pose is a PoseLandmarks with .points [(x_px, y_px, vis), ...]
+        pose_points = getattr(p.pose, 'points', None) if p.pose is not None else None
+        if pose_points is not None and len(pose_points) >= 17:
+            pts = []
+            for lm in pose_points:
+                if isinstance(lm, (list, tuple)) and len(lm) >= 2:
+                    px, py = int(lm[0]), int(lm[1])
+                else:
+                    px, py = 0, 0
+                pts.append((px, py))
+
+            # Draw connections
+            for i, j in _POSE_CONNECTIONS:
+                if i < len(pts) and j < len(pts):
+                    p1, p2 = pts[i], pts[j]
+                    if p1[0] > 0 and p1[1] > 0 and p2[0] > 0 and p2[1] > 0:
+                        cv2.line(out, p1, p2, color, 2, cv2.LINE_AA)
+
+            # Draw keypoints
+            for pt in pts:
+                if pt[0] > 0 and pt[1] > 0:
+                    cv2.circle(out, pt, 4, (255, 255, 255), -1)
+                    cv2.circle(out, pt, 4, color, 1)
+
+    # FPS + person count overlay
+    if state:
+        info = f"FPS: {state.get('fps', 0):.0f} | Persons: {len(persons)} | Frame: {state.get('frame_number', 0)}"
+        cv2.putText(out, info, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
+        cv2.putText(out, info, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1)
+
+    return out
 
 
 @app.post("/api/alert")

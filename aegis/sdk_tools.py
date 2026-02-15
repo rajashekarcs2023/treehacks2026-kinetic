@@ -107,6 +107,13 @@ async def get_dgx_wholebody(args: dict[str, Any]) -> dict[str, Any]:
     return _text_result(mcp_server.get_dgx_wholebody())
 
 
+@tool("check_landmark_visibility",
+      "Check if key body landmarks are visible and in-frame. Detects camera coverage issues and occlusion.",
+      {"track_id": int})
+async def check_landmark_visibility(args: dict[str, Any]) -> dict[str, Any]:
+    return _text_result(mcp_server.check_landmark_visibility(args["track_id"]))
+
+
 @tool("check_body_alignment",
       "Check body alignment for an optional exercise context.",
       {"track_id": int, "exercise": str})

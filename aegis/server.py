@@ -73,6 +73,7 @@ app.add_middleware(
 engine = None  # SpatialEngine instance (set externally)
 agent = None   # AegisSDKAgent instance (set externally)
 gemini_bridge = None  # GeminiBridge instance (set externally)
+openai_voice = None   # OpenAIVoiceBridge instance (set externally)
 dgx_client = None     # DGXClient instance (set externally)
 
 # ── Coaching state ────────────────────────────────────────────────────
@@ -93,18 +94,21 @@ _coaching_intelligence_task: asyncio.Task | None = None
 _last_agent_rep_count = 0
 
 async def _run_coaching_intelligence():
-    """Background loop: Claude Agent SDK analyzes coaching every ~10 seconds.
+    """Background loop: Claude Agent SDK analyzes coaching every ~5 seconds.
     
     Gathers coaching data directly from server state and passes it to Claude
     for intelligent analysis. Claude responds with ONLY the coaching feedback.
-    Feedback is shown on screen + spoken via Gemini Live.
+    Feedback is shown on screen + spoken via OpenAI Realtime voice.
     """
     global _last_agent_rep_count
     _last_agent_rep_count = 0
     check_count = 0
     
     # Wait for coaching to get going
-    await asyncio.sleep(6)
+    await asyncio.sleep(4)
+    _last_coverage_warn_time = 0
+    _consecutive_declining = 0
+    _last_milestone_rep = 0
     
     while _coaching_session and agent:
         try:
@@ -132,7 +136,42 @@ async def _run_coaching_intelligence():
                 f"Recent scores: {[round(s) for s in recent_scores[-5:]]}"
             )
             
+            # --- Camera coverage check (every 30s) ---
+            now = time.time()
+            if now - _last_coverage_warn_time > 30:
+                try:
+                    from aegis import mcp_server as mcp_mod
+                    vis = mcp_mod.check_landmark_visibility(0)
+                    if isinstance(vis, dict) and vis.get("warnings"):
+                        _last_coverage_warn_time = now
+                        coverage_warn = vis["warnings"][0]
+                        if openai_voice and openai_voice.is_connected:
+                            await openai_voice.speak(coverage_warn)
+                except Exception:
+                    pass
+
+            # --- Proactive check-ins ---
+            if trend == "declining":
+                _consecutive_declining += 1
+            else:
+                _consecutive_declining = 0
+
             if check_count == 1:
+                # Inject session memory into OpenAI voice for personalized coaching
+                if openai_voice and openai_voice.is_connected:
+                    try:
+                        history = _data_collector.get_last_session_summary(session.skill_name)
+                        if history:
+                            memory_text = (
+                                f"[SESSION HISTORY] Last time on {history['skill']}: "
+                                f"{history['total_reps']} reps, avg {history['avg_score']}/100, "
+                                f"best {history['best_score']}/100. "
+                                f"Top issues: {', '.join(history['top_corrections']) if history['top_corrections'] else 'none'}. "
+                                f"{'Improving over time!' if history.get('improving') else 'Needs work on consistency.'}"
+                            )
+                            await openai_voice.inject_coaching_context(memory_text)
+                    except Exception:
+                        pass
                 prompt = (
                     f"[COACHING SESSION STARTED]\n{data_block}\n\n"
                     "Use your coaching tools to analyze the user's starting position, then "
@@ -140,6 +179,22 @@ async def _run_coaching_intelligence():
                     "Keep your spoken output to 1 sentence max."
                 )
                 agent_action = "session_start"
+            elif current_reps > 0 and current_reps % 10 == 0 and current_reps != _last_milestone_rep:
+                _last_milestone_rep = current_reps
+                prompt = (
+                    f"[MILESTONE: {current_reps} REPS]\n{data_block}\n\n"
+                    "Celebrate this milestone! Ask if they want to keep going or take a break. "
+                    "1 sentence max."
+                )
+                agent_action = "milestone"
+            elif _consecutive_declining >= 3:
+                prompt = (
+                    f"[SCORES DECLINING 3+ REPS]\n{data_block}\n\n"
+                    "Scores have been dropping. Be gentle and supportive. "
+                    "Suggest slowing down or taking a break. 1 sentence."
+                )
+                agent_action = "fatigue_checkin"
+                _consecutive_declining = 0
             elif current_reps > _last_agent_rep_count:
                 _last_agent_rep_count = current_reps
                 prompt = (
@@ -159,7 +214,7 @@ async def _run_coaching_intelligence():
                     agent_action = "correction"
                 else:
                     # Skip periodic if nothing interesting
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(5)
                     continue
             
             response = await agent.send_message(prompt)
@@ -199,19 +254,10 @@ async def _run_coaching_intelligence():
                             except Exception:
                                 pass
                     
-                    # Speak via Gemini Live (if connected) or macOS say fallback
-                    if gemini_bridge and gemini_bridge.is_connected:
+                    # Voice: send to OpenAI Realtime for natural speech
+                    if openai_voice and openai_voice.is_connected:
                         try:
-                            await gemini_bridge.speak(speech_text)
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            import subprocess
-                            subprocess.Popen(
-                                ["say", "-r", "185", speech_text],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            )
+                            await openai_voice.speak(speech_text)
                         except Exception:
                             pass
             
@@ -219,7 +265,7 @@ async def _run_coaching_intelligence():
             print(f"[Agent] Coaching intelligence error: {e}")
         
         # Wait before next check
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
 
 def _start_coaching_intelligence():
     """Start the Claude coaching intelligence background task."""
@@ -1291,40 +1337,46 @@ async def ws_video(websocket: WebSocket):
         print(f"[Server] Video WebSocket error: {e}")
 
 
-# ── WebSocket: Audio proxy to Gemini Live ────────────────────────────
+# ── WebSocket: Audio proxy (OpenAI Realtime or Gemini Live) ──────────
 
 @app.websocket("/ws/audio")
 async def ws_audio(websocket: WebSocket):
     """
-    Phone sends mic audio, server proxies to Gemini Live, returns audio.
+    Bidirectional voice coaching via OpenAI Realtime API (preferred) or Gemini Live.
     
     Protocol:
-      Phone → Server: raw bytes (16kHz 16-bit PCM) or {"type":"audio","data":"<base64 pcm>"}
-      Server → Phone: raw bytes (24kHz 16-bit PCM) or {"type":"audio","data":"<base64 pcm>"}
-      Phone → Server: {"type":"text","data":"<text message>"}
-      Phone → Server: {"type":"spatial","data":<state_dict>}
+      Client → Server: {"type":"audio","data":"<base64 pcm 16kHz>"} — mic audio
+      Server → Client: {"type":"audio","data":"<base64 pcm 24kHz>"} — AI voice
+      Client → Server: {"type":"text","data":"<text>"} — coaching context
+      Client → Server: {"type":"ping"} → {"type":"pong"}
     """
     await websocket.accept()
     print("[Server] Audio client connected")
 
-    if gemini_bridge is None:
-        await websocket.send_text(json.dumps({"type": "error", "data": "Voice bridge not initialized"}))
+    # Pick voice bridge: OpenAI Realtime preferred
+    bridge = openai_voice or gemini_bridge
+    bridge_name = "OpenAI Realtime" if openai_voice else "Gemini Live"
+
+    if bridge is None:
+        await websocket.send_text(json.dumps({"type": "error", "data": "No voice bridge configured"}))
         await websocket.close()
         return
 
-    # Connect Gemini if not already
-    if not gemini_bridge.is_connected:
-        ok = await gemini_bridge.connect()
+    # Connect if not already
+    if not bridge.is_connected:
+        ok = await bridge.connect()
         if not ok:
-            await websocket.send_text(json.dumps({"type": "error", "data": "Gemini connection failed"}))
+            await websocket.send_text(json.dumps({"type": "error", "data": f"{bridge_name} connection failed"}))
             await websocket.close()
             return
 
-    # Task: forward Gemini audio output → phone
-    async def send_audio_to_phone():
+    print(f"[Server] Voice bridge: {bridge_name}")
+
+    # Task: forward AI audio output → client
+    async def send_audio_to_client():
         try:
             while True:
-                audio_bytes = await gemini_bridge.get_audio_output(timeout=0.1)
+                audio_bytes = await bridge.get_audio_output(timeout=0.1)
                 if audio_bytes:
                     b64 = base64.b64encode(audio_bytes).decode()
                     await websocket.send_text(json.dumps({
@@ -1336,7 +1388,7 @@ async def ws_audio(websocket: WebSocket):
         except Exception as e:
             print(f"[Server] Audio send error: {e}")
 
-    send_task = asyncio.create_task(send_audio_to_phone())
+    send_task = asyncio.create_task(send_audio_to_client())
 
     try:
         while True:
@@ -1344,17 +1396,19 @@ async def ws_audio(websocket: WebSocket):
             data = json.loads(msg)
 
             if data.get("type") == "audio":
-                # Base64-encoded PCM audio from phone
                 pcm_bytes = base64.b64decode(data["data"])
-                await gemini_bridge.send_audio(pcm_bytes)
+                await bridge.send_audio(pcm_bytes)
 
             elif data.get("type") == "text":
-                # Text message to Gemini
-                await gemini_bridge.send_text(data["data"])
+                # Coaching context injection
+                if openai_voice and openai_voice.is_connected:
+                    await openai_voice.inject_coaching_context(data["data"])
+                elif gemini_bridge and gemini_bridge.is_connected:
+                    await gemini_bridge.send_text(data["data"])
 
             elif data.get("type") == "spatial":
-                # Spatial state injection
-                await gemini_bridge.inject_spatial_state(data["data"])
+                if gemini_bridge and gemini_bridge.is_connected:
+                    await gemini_bridge.inject_spatial_state(data["data"])
 
             elif data.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
@@ -1387,13 +1441,20 @@ async def dgx_status():
 
 @app.get("/api/voice/status")
 async def voice_status():
-    """Gemini Live voice bridge status."""
+    """Voice bridge status (OpenAI Realtime or Gemini Live)."""
+    if openai_voice is not None:
+        return {
+            "available": True,
+            "engine": "OpenAI Realtime (GPT-4o)",
+            "connected": openai_voice.is_connected,
+            "voice": "alloy",
+        }
     return {
         "available": gemini_bridge is not None,
+        "engine": "Gemini Live",
         "connected": gemini_bridge.is_connected if gemini_bridge else False,
         "model": config.GEMINI_MODEL,
         "voice": config.GEMINI_VOICE,
-        "api_key_set": bool(config.GEMINI_API_KEY),
     }
 
 

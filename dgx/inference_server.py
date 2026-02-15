@@ -47,13 +47,17 @@ def load_models():
     """Load YOLOv8-pose model via ultralytics."""
     global pose_model
     try:
+        import torch
         from ultralytics import YOLO
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         # YOLOv8n-pose: 17 keypoints, fast, well-tested
         pose_model = YOLO("yolov8n-pose.pt")
-        # Force CPU since GB10 GPU not yet supported by PyTorch
-        pose_model.to("cpu")
-        print("[DGX] YOLOv8n-pose loaded (17 body keypoints, CPU mode)")
+        pose_model.to(device)
+        gpu_name = torch.cuda.get_device_name(0) if device == "cuda" else "N/A"
+        print(f"[DGX] YOLOv8n-pose loaded (17 body keypoints, {device} mode)")
         print(f"[DGX] Platform: {platform.machine()} ({os.cpu_count()} cores)")
+        if device == "cuda":
+            print(f"[DGX] GPU: {gpu_name}")
 
         # Warmup
         dummy = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -70,49 +74,48 @@ def load_motion_model():
     """Try loading a text-to-motion generation model. Non-blocking — skips if unavailable."""
     global motion_model, motion_model_type
 
-    # Try MLD (Motion Latent Diffusion) — lighter, faster
-    try:
-        from mld.models.modeltype.mld import MLD
-        from mld.config import parse_args as mld_parse_args
-        import torch
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[DGX Motion] Device: {device}")
+    if device == "cuda":
+        print(f"[DGX Motion] GPU: {torch.cuda.get_device_name(0)}")
 
-        # Check for model weights
-        mld_ckpt = os.environ.get("MLD_CHECKPOINT", "models/mld_humanml3d.ckpt")
-        if os.path.exists(mld_ckpt):
-            print(f"[DGX Motion] Loading MLD from {mld_ckpt}...")
-            motion_model = {"type": "mld", "checkpoint": mld_ckpt}
-            motion_model_type = "mld"
-            print("[DGX Motion] MLD model ready")
+    # Priority 1: HY-Motion 1.0 (Tencent, SOTA, needs GPU)
+    hymotion_dir = os.environ.get("HYMOTION_DIR", os.path.expanduser("~/aegis-dgx/HY-Motion-1.0"))
+    if os.path.exists(hymotion_dir):
+        try:
+            import sys
+            if hymotion_dir not in sys.path:
+                sys.path.insert(0, hymotion_dir)
+            motion_model = {"type": "hymotion", "dir": hymotion_dir, "device": device}
+            motion_model_type = "hymotion"
+            print(f"[DGX Motion] HY-Motion 1.0 found at {hymotion_dir} — SOTA text-to-motion on {device}")
             return
-    except ImportError:
-        pass
+        except Exception as e:
+            print(f"[DGX Motion] HY-Motion 1.0 load error: {e}")
 
-    # Try MDM (Motion Diffusion Model)
-    try:
-        mdm_dir = os.environ.get("MDM_DIR", "motion-diffusion-model")
-        mdm_ckpt = os.environ.get("MDM_CHECKPOINT", "models/humanml_trans_enc_512.pt")
-        if os.path.exists(os.path.join(mdm_dir, "model")) and os.path.exists(mdm_ckpt):
-            print(f"[DGX Motion] MDM directory found at {mdm_dir}")
-            motion_model = {"type": "mdm", "dir": mdm_dir, "checkpoint": mdm_ckpt}
-            motion_model_type = "mdm"
-            print("[DGX Motion] MDM model ready")
+    # Priority 2: MoMask (CVPR 2024, good quality)
+    momask_dir = os.environ.get("MOMASK_DIR", os.path.expanduser("~/aegis-dgx/MoMask"))
+    if os.path.exists(momask_dir):
+        try:
+            motion_model = {"type": "momask", "dir": momask_dir, "device": device}
+            motion_model_type = "momask"
+            print(f"[DGX Motion] MoMask found at {momask_dir}")
             return
-    except Exception:
-        pass
+        except Exception as e:
+            print(f"[DGX Motion] MoMask load error: {e}")
 
-    # Try T2M-GPT
-    try:
-        t2m_ckpt = os.environ.get("T2M_CHECKPOINT", "models/t2m_gpt.pt")
-        if os.path.exists(t2m_ckpt):
-            motion_model = {"type": "t2m", "checkpoint": t2m_ckpt}
-            motion_model_type = "t2m"
-            print("[DGX Motion] T2M-GPT model ready")
-            return
-    except Exception:
-        pass
+    # Priority 3: MLD (fast, lighter)
+    mld_ckpt = os.environ.get("MLD_CHECKPOINT", "models/mld_humanml3d.ckpt")
+    if os.path.exists(mld_ckpt):
+        motion_model = {"type": "mld", "checkpoint": mld_ckpt, "device": device}
+        motion_model_type = "mld"
+        print(f"[DGX Motion] MLD model ready on {device}")
+        return
 
     print("[DGX Motion] No motion generation model found — /generate_motion will return 503")
-    print("[DGX Motion] Run: bash dgx/setup_motion.sh to install MDM")
+    print("[DGX Motion] Install HY-Motion 1.0:")
+    print("[DGX Motion]   cd ~/aegis-dgx && git clone https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git")
 
 
 @app.get("/health")
@@ -248,57 +251,106 @@ SMPL_TO_MP33 = {
 }
 
 
-def _run_mdm_inference(prompt: str, num_frames: int = 60) -> list:
-    """Run MDM inference. Returns list of frames, each frame is list of 22 (x,y,z) joints."""
+def _run_hymotion_inference(prompt: str, num_frames: int = 60) -> list:
+    """Run HY-Motion 1.0 inference on GPU. Returns list of frames with 22 SMPL joints (x,y,z)."""
+    import sys
+    import torch
+    import subprocess
+    import json as json_mod
+
+    hymotion_dir = motion_model["dir"]
+
+    # Write prompt to temp file
+    prompt_file = os.path.join(hymotion_dir, "temp_prompt.txt")
+    output_dir = os.path.join(hymotion_dir, "output", "api_output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(prompt_file, "w") as f:
+        f.write(prompt)
+
+    # Determine model path (full or lite)
+    ckpt_dir = os.path.join(hymotion_dir, "ckpts", "tencent")
+    if os.path.exists(os.path.join(ckpt_dir, "HY-Motion-1.0")):
+        model_path = os.path.join(ckpt_dir, "HY-Motion-1.0")
+    elif os.path.exists(os.path.join(ckpt_dir, "HY-Motion-1.0-Lite")):
+        model_path = os.path.join(ckpt_dir, "HY-Motion-1.0-Lite")
+    else:
+        raise FileNotFoundError("HY-Motion checkpoint not found in ckpts/tencent/")
+
+    # Run inference via subprocess (cleanest way to handle HY-Motion's imports)
+    result = subprocess.run(
+        [
+            sys.executable, "local_infer.py",
+            "--model_path", model_path,
+            "--input_text_dir", os.path.dirname(prompt_file),
+            "--output_dir", output_dir,
+            "--num_seeds", "1",
+            "--disable_duration_est",
+            "--disable_rewrite",
+        ],
+        cwd=hymotion_dir,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    if result.returncode != 0:
+        print(f"[HY-Motion] stderr: {result.stderr[:500]}")
+        raise RuntimeError(f"HY-Motion inference failed: {result.stderr[:200]}")
+
+    # Find output .npy file
+    import glob
+    npy_files = sorted(glob.glob(os.path.join(output_dir, "**/*.npy"), recursive=True))
+    if not npy_files:
+        raise FileNotFoundError("No .npy output from HY-Motion")
+
+    joints = np.load(npy_files[-1])  # Shape: (num_frames, 22, 3) typically
+    # Clean up
+    os.remove(prompt_file)
+
+    return joints.tolist()
+
+
+def _run_momask_inference(prompt: str, num_frames: int = 60) -> list:
+    """Run MoMask inference. Returns list of frames with joint positions."""
     import sys
     import torch
 
-    mdm_dir = motion_model["dir"]
-    if mdm_dir not in sys.path:
-        sys.path.insert(0, mdm_dir)
+    momask_dir = motion_model["dir"]
+    if momask_dir not in sys.path:
+        sys.path.insert(0, momask_dir)
 
-    from utils.parser_util import generate_args
-    from utils.model_util import create_model_and_diffusion, load_model_wo_clip
-    from model.cfg_sampler import ClassifierFreeSampleModel
-    from data_loaders.humanml.scripts.motion_process import recover_from_ric
+    # MoMask has a generate.py interface
+    from models.mask_transformer.transformer import MaskTransformer
+    device = motion_model.get("device", "cuda")
 
-    # Generate motion
-    args = generate_args()
-    args.model_path = motion_model["checkpoint"]
-    args.num_samples = 1
-    args.num_repetitions = 1
-    args.motion_length = num_frames / 20.0  # MDM uses 20fps
-
-    model, diffusion = create_model_and_diffusion(args, None)
-    load_model_wo_clip(model, args.model_path)
-    model.eval()
-
-    # Encode text prompt
-    from data_loaders.humanml.utils.word_vectorizer import WordVectorizer
-
-    sample = diffusion.p_sample_loop(
-        model,
-        (1, model.njoints, model.nfeats, num_frames),
-        clip_denoised=False,
-        model_kwargs={"y": {"text": [prompt], "lengths": torch.tensor([num_frames])}},
-        skip_timesteps=0,
-        progress=True,
+    # Use MoMask's generation pipeline
+    result = subprocess.run(
+        [
+            sys.executable, "gen_t2m.py",
+            "--text", prompt,
+            "--length", str(num_frames),
+        ],
+        cwd=momask_dir,
+        capture_output=True, text=True, timeout=60,
     )
 
-    # Convert to joint positions
-    joints = recover_from_ric(sample.squeeze().permute(1, 0), 22)
-    return joints.cpu().numpy().tolist()
+    # Parse output
+    import glob
+    npy_files = sorted(glob.glob(os.path.join(momask_dir, "output/**/*.npy"), recursive=True))
+    if npy_files:
+        joints = np.load(npy_files[-1])
+        return joints.tolist()
+    raise RuntimeError("MoMask inference produced no output")
 
 
 def _run_mld_inference(prompt: str, num_frames: int = 60) -> list:
     """Run MLD inference. Returns list of frames with joint positions."""
     import torch
-
-    # MLD uses a simpler interface
     from mld.models.modeltype.mld import MLD as MLDModel
-    model = MLDModel.load_from_checkpoint(motion_model["checkpoint"])
+    device = motion_model.get("device", "cpu")
+    model = MLDModel.load_from_checkpoint(motion_model["checkpoint"]).to(device)
     model.eval()
-
     with torch.no_grad():
         result = model.generate(prompt, num_frames=num_frames)
     return result.cpu().numpy().tolist()
@@ -395,8 +447,10 @@ async def generate_motion(req: MotionRequest):
     t0 = time.time()
 
     try:
-        if motion_model_type == "mdm":
-            joints_3d = _run_mdm_inference(req.prompt, req.num_frames)
+        if motion_model_type == "hymotion":
+            joints_3d = _run_hymotion_inference(req.prompt, req.num_frames)
+        elif motion_model_type == "momask":
+            joints_3d = _run_momask_inference(req.prompt, req.num_frames)
         elif motion_model_type == "mld":
             joints_3d = _run_mld_inference(req.prompt, req.num_frames)
         else:

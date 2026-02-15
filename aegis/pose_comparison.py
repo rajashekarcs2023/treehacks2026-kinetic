@@ -75,6 +75,13 @@ KEY_ANGLES = {
     "right_knee":     (RIGHT_HIP, RIGHT_KNEE, RIGHT_ANKLE),
     "left_ankle":     (LEFT_KNEE, LEFT_ANKLE, LEFT_FOOT_INDEX),
     "right_ankle":    (RIGHT_KNEE, RIGHT_ANKLE, RIGHT_FOOT_INDEX),
+    # Additional angles for more precise comparison
+    "spine":          (NOSE, LEFT_SHOULDER, LEFT_HIP),       # torso lean
+    "neck":           (LEFT_EAR, NOSE, LEFT_SHOULDER),       # head tilt
+    "left_wrist":     (LEFT_ELBOW, LEFT_WRIST, LEFT_INDEX),  # wrist angle
+    "right_wrist":    (RIGHT_ELBOW, RIGHT_WRIST, RIGHT_INDEX),
+    "torso_lean":     (LEFT_SHOULDER, LEFT_HIP, LEFT_ANKLE),  # full body lean
+    "hip_width":      (LEFT_KNEE, LEFT_HIP, RIGHT_HIP),       # stance width
 }
 
 # Friendly names for display
@@ -89,6 +96,12 @@ ANGLE_NAMES = {
     "right_knee": "Right Knee",
     "left_ankle": "Left Ankle",
     "right_ankle": "Right Ankle",
+    "spine": "Spine",
+    "neck": "Neck",
+    "left_wrist": "Left Wrist",
+    "right_wrist": "Right Wrist",
+    "torso_lean": "Torso Lean",
+    "hip_width": "Stance Width",
 }
 
 # Default weights for similarity scoring (higher = more important)
@@ -103,6 +116,12 @@ DEFAULT_WEIGHTS = {
     "right_knee": 1.5,
     "left_ankle": 0.8,
     "right_ankle": 0.8,
+    "spine": 1.3,
+    "neck": 0.6,
+    "left_wrist": 0.7,
+    "right_wrist": 0.7,
+    "torso_lean": 1.4,
+    "hip_width": 1.0,
 }
 
 
@@ -337,10 +356,45 @@ def normalize_skeleton(points: list) -> NormalizedSkeleton:
 # SIMILARITY SCORING
 # ═══════════════════════════════════════════════════════════════════════
 
+def _gaussian_score(deviation: float, sigma: float = 20.0) -> float:
+    """Gaussian-weighted scoring: small deviations are penalized more proportionally.
+    sigma=20 means 20° deviation ≈ 60% score, 10° ≈ 88%, 30° ≈ 32%, 45°+ ≈ ~0%.
+    Much better than linear for detecting subtle form issues."""
+    return math.exp(-(deviation ** 2) / (2 * sigma ** 2))
+
+
+def _cosine_similarity_points(user_pts: list, expert_pts: list,
+                              min_vis: float = 0.4) -> float:
+    """Cosine similarity between normalized skeleton point vectors.
+    Captures spatial positioning that angles alone miss (e.g., stance width, arm spread)."""
+    # Build vectors from points where BOTH have good visibility
+    u_vec, e_vec = [], []
+    for i in range(min(len(user_pts), len(expert_pts))):
+        u_x, u_y, u_v = user_pts[i]
+        e_x, e_y, e_v = expert_pts[i]
+        if u_v >= min_vis and e_v >= min_vis:
+            u_vec.extend([u_x, u_y])
+            e_vec.extend([e_x, e_y])
+    if len(u_vec) < 6:  # need at least 3 joints
+        return 0.5  # neutral
+    u_arr = np.array(u_vec, dtype=np.float64)
+    e_arr = np.array(e_vec, dtype=np.float64)
+    dot = np.dot(u_arr, e_arr)
+    norm_u = np.linalg.norm(u_arr) + 1e-8
+    norm_e = np.linalg.norm(e_arr) + 1e-8
+    return float(max(0.0, dot / (norm_u * norm_e)))
+
+
 def compare_poses(user_angles: dict[str, float],
                   expert_angles: dict[str, float],
-                  weights: dict[str, float] = None) -> ComparisonResult:
-    """Compare user's joint angles to expert's.
+                  weights: dict[str, float] = None,
+                  user_skeleton: Optional['NormalizedSkeleton'] = None,
+                  expert_skeleton: Optional['NormalizedSkeleton'] = None) -> ComparisonResult:
+    """Compare user's pose to expert's using hybrid scoring.
+
+    Scoring dimensions:
+    1. Gaussian-weighted angle deviation (70% of score) — precise joint matching
+    2. Cosine similarity of normalized points (30% of score) — spatial positioning
 
     Returns ComparisonResult with overall score and per-joint deviations.
     """
@@ -351,7 +405,6 @@ def compare_poses(user_angles: dict[str, float],
     for joint in KEY_ANGLES:
         if joint in user_angles and joint in expert_angles:
             deviations[joint] = abs(user_angles[joint] - expert_angles[joint])
-        # If joint is missing from either, skip it
 
     if not deviations:
         return ComparisonResult(
@@ -361,18 +414,25 @@ def compare_poses(user_angles: dict[str, float],
             best_joints=[],
         )
 
-    # Weighted score: 45° deviation = 0% for that joint
-    max_deviation = 45.0
+    # Dimension 1: Gaussian-weighted angle score (70%)
     total_weight = 0.0
     weighted_score = 0.0
-
     for joint, dev in deviations.items():
         w = weights.get(joint, 1.0)
         total_weight += w
-        joint_score = max(0.0, 1.0 - dev / max_deviation)
+        joint_score = _gaussian_score(dev, sigma=20.0)
         weighted_score += w * joint_score
 
-    overall = 100.0 * weighted_score / max(total_weight, 1e-8)
+    angle_score = 100.0 * weighted_score / max(total_weight, 1e-8)
+
+    # Dimension 2: Cosine similarity of normalized skeleton (30%)
+    spatial_score = 50.0  # neutral default if no skeletons provided
+    if user_skeleton and expert_skeleton:
+        cos_sim = _cosine_similarity_points(user_skeleton.points, expert_skeleton.points)
+        spatial_score = 100.0 * cos_sim
+
+    # Hybrid: 70% angles, 30% spatial
+    overall = 0.7 * angle_score + 0.3 * spatial_score
 
     # Sort joints by deviation
     sorted_joints = sorted(deviations.items(), key=lambda x: -x[1])
@@ -472,7 +532,7 @@ def compare_sequences(user_seq: list[NormalizedSkeleton],
     if not path:
         return {"error": "DTW alignment failed", "similarity_score": 0.0}
 
-    # Score each aligned frame
+    # Score each aligned frame (with full skeleton for hybrid scoring)
     frame_scores = []
     frame_deviations = []
     for user_idx, expert_idx in path:
@@ -480,6 +540,8 @@ def compare_sequences(user_seq: list[NormalizedSkeleton],
             user_seq[user_idx].joint_angles,
             expert_seq[expert_idx].joint_angles,
             weights,
+            user_skeleton=user_seq[user_idx],
+            expert_skeleton=expert_seq[expert_idx],
         )
         frame_scores.append(result.similarity_score)
         frame_deviations.append(result.per_joint_deviation)
@@ -913,17 +975,29 @@ class CoachingSession:
 
         # Compare to reference if available
         if self.reference and self.reference.skeletons:
-            # Find the best matching frame in reference
+            # Find the best matching frame in reference (sample every 3rd for speed)
             best_idx = 0
             best_dist = float('inf')
-            for i, ref_skel in enumerate(self.reference.skeletons):
+            step = max(1, len(self.reference.skeletons) // 50)  # at most 50 comparisons
+            for i in range(0, len(self.reference.skeletons), step):
+                ref_skel = self.reference.skeletons[i]
                 d = compute_skeleton_distance(skel, ref_skel)
                 if d < best_dist:
                     best_dist = d
                     best_idx = i
 
+            # Refine: check neighbors of best match
+            for i in range(max(0, best_idx - 2), min(len(self.reference.skeletons), best_idx + 3)):
+                d = compute_skeleton_distance(skel, self.reference.skeletons[i])
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = i
+
             ref_skel = self.reference.skeletons[best_idx]
-            return compare_poses(skel.joint_angles, ref_skel.joint_angles)
+            return compare_poses(
+                skel.joint_angles, ref_skel.joint_angles,
+                user_skeleton=skel, expert_skeleton=ref_skel,
+            )
 
         return None
 
@@ -1036,6 +1110,8 @@ def quick_compare(user_points: list, expert_points: list,
                   weights: dict = None) -> ComparisonResult:
     """Quick single-frame comparison from raw landmark points.
 
+    Uses hybrid scoring: 70% angle match + 30% spatial cosine similarity.
+
     Args:
         user_points: [(x, y, vis), ...] × 33 — user's current pose
         expert_points: [(x, y, vis), ...] × 33 — expert's reference pose
@@ -1043,6 +1119,9 @@ def quick_compare(user_points: list, expert_points: list,
     Returns:
         ComparisonResult
     """
-    user_angles = compute_joint_angles(user_points)
-    expert_angles = compute_joint_angles(expert_points)
-    return compare_poses(user_angles, expert_angles, weights)
+    user_skel = normalize_skeleton(user_points)
+    expert_skel = normalize_skeleton(expert_points)
+    return compare_poses(
+        user_skel.joint_angles, expert_skel.joint_angles, weights,
+        user_skeleton=user_skel, expert_skeleton=expert_skel,
+    )

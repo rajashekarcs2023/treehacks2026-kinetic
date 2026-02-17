@@ -217,9 +217,7 @@ kinetic/
 
 ---
 
-## Built at TreeHacks 2026 🌲
-
-Solo-built in 20 hours. 17,000+ lines. 10 models. 4 modes. 46 MCP tools.
+## Built at TreeHacks 2026 🌲 
 
 **Powered by:**
 - **Anthropic** Claude Sonnet 4 + Agent SDK (3 sub-agents, hooks, MCP)

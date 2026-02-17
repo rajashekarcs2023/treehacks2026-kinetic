@@ -19,7 +19,6 @@ const NAV_ITEMS = [
   { href: "/coach", icon: Video, label: "Coach" },
   { href: "/skills", icon: Trophy, label: "Skills" },
   { href: "/history", icon: History, label: "History" },
-  { href: "/monitor", icon: Eye, label: "Monitor" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
 

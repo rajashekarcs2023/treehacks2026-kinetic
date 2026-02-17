@@ -66,6 +66,7 @@ function MonitorContent() {
   const isClinicalMode = mode === "clinical" || ["bed_exit", "immobility", "line_pulling", "post_op", "wandering"].includes(initialGoal);
   const activeGoals = isClinicalMode ? CLINICAL_GOALS : GOALS;
   const [selectedGoal, setSelectedGoal] = useState(initialGoal);
+  const [customGoal, setCustomGoal] = useState("");
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -85,7 +86,7 @@ function MonitorContent() {
       const res = await fetch(`${API_BASE}/api/monitoring/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal_id: selectedGoal }),
+        body: JSON.stringify({ goal_id: selectedGoal, custom_goal: customGoal }),
       });
       const data = await res.json();
       if (data.status === "monitoring_started") {
@@ -232,6 +233,21 @@ function MonitorContent() {
               </div>
             </div>
 
+            {/* Custom Goal Input */}
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold text-muted-foreground">Or describe your own goal</h2>
+              <input
+                type="text"
+                value={customGoal}
+                onChange={(e) => setCustomGoal(e.target.value)}
+                placeholder="e.g. Alert me on Telegram if any person appears in the frame..."
+                className="w-full px-4 py-3 rounded-xl border border-border bg-card text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              />
+              {customGoal && (
+                <p className="text-xs text-blue-400">Custom goal will override the selected preset above.</p>
+              )}
+            </div>
+
             {/* Start Button */}
             <Button
               onClick={startMonitoring}
@@ -283,9 +299,33 @@ function MonitorContent() {
                 </div>
               </div>
 
-              {/* Bottom overlay — latest alert flash */}
-              {alerts.length > 0 && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+              {/* Bottom overlay — latest alert + recent tool calls */}
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+                {/* Latest tool calls ticker */}
+                {toolCalls.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {[...toolCalls].reverse().slice(0, 5).map((tc, i) => (
+                      <div key={`otc-${i}`} className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-500/20 border border-blue-500/30 backdrop-blur-sm">
+                        <Wrench className="h-3 w-3 text-blue-400" />
+                        <span className="text-[10px] font-mono text-blue-300 truncate max-w-[150px]">{tc.name?.replace('mcp__aegis__', '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Latest reasoning */}
+                {decisions.length > 0 && (
+                  <div className="mb-2 p-2 rounded-lg bg-purple-500/15 border border-purple-500/30 backdrop-blur-sm">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <Brain className="h-3 w-3 text-purple-400" />
+                      <span className="text-[10px] font-bold text-purple-300">AGENT REASONING</span>
+                    </div>
+                    <p className="text-xs text-white/80 leading-relaxed">{decisions[decisions.length - 1]?.text?.slice(0, 200)}</p>
+                  </div>
+                )}
+
+                {/* Latest alert */}
+                {alerts.length > 0 && (
                   <div className={`p-3 rounded-lg border backdrop-blur-sm ${
                     alerts[alerts.length - 1]?.type === "fall"
                       ? "bg-red-500/20 border-red-500/40"
@@ -293,14 +333,14 @@ function MonitorContent() {
                       ? "bg-purple-500/20 border-purple-500/40"
                       : "bg-amber-500/20 border-amber-500/40"
                   }`}>
-                    <p className="text-sm text-white font-medium">{alerts[alerts.length - 1]?.message}</p>
+                    <p className="text-sm text-white font-medium">{alerts[alerts.length - 1]?.message?.slice(0, 200)}</p>
                     <p className="text-[10px] text-white/50 mt-1">
                       {new Date((alerts[alerts.length - 1]?.timestamp || 0) * 1000).toLocaleTimeString()}
                       {alerts[alerts.length - 1]?.sent && " · ✓ Sent to Telegram"}
                     </p>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* No feed placeholder */}
               {!frameRef.current?.src && (

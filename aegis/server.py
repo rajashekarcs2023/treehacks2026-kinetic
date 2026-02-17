@@ -1588,13 +1588,16 @@ async def monitoring_start(req: MonitoringStartRequest):
     global _monitoring_active, _monitoring_goal, _monitoring_task
 
     _monitoring_active = True
-    _monitoring_goal = req.goal_id
+    _monitoring_goal = req.custom_goal if req.custom_goal else req.goal_id
     _monitoring_alerts.clear()
 
     # Set agent goal if available
     if agent:
         try:
-            agent.set_goal_by_id(req.goal_id)
+            if req.custom_goal:
+                agent.set_goal(req.custom_goal)
+            else:
+                agent.set_goal_by_id(req.goal_id)
         except Exception:
             pass
 
@@ -1859,8 +1862,8 @@ async def _run_monitoring_loop():
                     _monitoring_alerts.append({"message": alert_msg, "timestamp": now, "type": "elopement", "sent": False})
                     await _send_clinical_alert(alert_msg, "elopement", now)
 
-            # Periodic scene check via agent (every 30s)
-            if agent and (now - last_activity_check) > 30 and persons:
+            # Periodic scene check via agent (every 10s)
+            if agent and (now - last_activity_check) > 10 and persons:
                 last_activity_check = now
                 activities = [getattr(p, 'activity', 'unknown') for p in persons]
                 try:
